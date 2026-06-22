@@ -139,6 +139,10 @@ update_program() {
     mv route-monitor.new $INSTALL_DIR
     rm -f main.zip
 
+    # 修复权限并重建快捷命令
+    chmod +x "$INSTALL_DIR/monitor.sh"
+    ln -sf "$INSTALL_DIR/monitor.sh" /usr/local/bin/monitor
+
     # 重建 venv
     cd $INSTALL_DIR
     python3 -m venv venv
