@@ -2,6 +2,8 @@
 # 路由监测管理菜单
 # 用法: monitor
 
+chmod +x "$0" 2>/dev/null
+
 SERVICE="route-monitor"
 INSTALL_DIR="/root/route-monitor"
 CONFIG_FILE="$INSTALL_DIR/config.local.json"
@@ -49,31 +51,31 @@ show_menu() {
     systemctl is-active --quiet $SERVICE 2>/dev/null && running=true
 
     echo ""
-    echo -e "  ${C}+===============================================+${NC}"
-    echo -e "  ${C}|          AWS Route Monitor  v1.0              |${NC}"
-    echo -e "  ${C}+===============================================+${NC}"
+    echo -e "${C}+===============================================+${NC}"
+    echo -e "${C}|          AWS Route Monitor  v1.0              |${NC}"
+    echo -e "${C}+===============================================+${NC}"
 
     if $running; then
         local uptime=$(get_uptime)
-        printf "  ${C}|${NC}  %-45s ${C}|${NC}\n" "${G}[RUNNING]${NC} ${D}已运行 ${uptime}${NC}"
+        echo -e "${C}|${NC}  ${G}[RUNNING]${NC} ${D}已运行 ${uptime}${NC}"
     else
-        printf "  ${C}|${NC}  %-45s ${C}|${NC}\n" "${R}[STOPPED]${NC}"
+        echo -e "${C}|${NC}  ${R}[STOPPED]${NC}"
     fi
 
-    printf "  ${C}|${NC}  %-45s ${C}|${NC}\n" "服务器: ${B}${name}${NC}"
-    echo -e "  ${C}+===============================================+${NC}"
-    echo -e "  ${C}|                                               |${NC}"
-    echo -e "  ${C}|${NC}  ${Y} 1${NC}  查看状态                                  ${C}|${NC}"
-    echo -e "  ${C}|${NC}  ${Y} 2${NC}  查看实时日志                              ${C}|${NC}"
-    echo -e "  ${C}|${NC}  ${Y} 3${NC}  重启服务                                  ${C}|${NC}"
-    echo -e "  ${C}|${NC}  ${Y} 4${NC}  停止服务                                  ${C}|${NC}"
-    echo -e "  ${C}|${NC}  ${Y} 5${NC}  重新配置                                  ${C}|${NC}"
-    echo -e "  ${C}|${NC}  ${Y} 6${NC}  测试告警                                  ${C}|${NC}"
-    echo -e "  ${C}|${NC}  ${Y} 7${NC}  更新程序                                  ${C}|${NC}"
-    echo -e "  ${C}|${NC}  ${R} 8${NC}  一键卸载                                  ${C}|${NC}"
-    echo -e "  ${C}|${NC}  ${Y} 0${NC}  退出                                      ${C}|${NC}"
-    echo -e "  ${C}|                                               |${NC}"
-    echo -e "  ${C}+===============================================+${NC}"
+    echo -e "${C}|${NC}  服务器: ${B}${name}${NC}"
+    echo -e "${C}+===============================================+${NC}"
+    echo -e "${C}|                                               |${NC}"
+    echo -e "${C}|${NC}  ${Y} 1${NC}  查看状态"
+    echo -e "${C}|${NC}  ${Y} 2${NC}  查看实时日志"
+    echo -e "${C}|${NC}  ${Y} 3${NC}  重启服务"
+    echo -e "${C}|${NC}  ${Y} 4${NC}  停止服务"
+    echo -e "${C}|${NC}  ${Y} 5${NC}  重新配置"
+    echo -e "${C}|${NC}  ${Y} 6${NC}  测试告警"
+    echo -e "${C}|${NC}  ${Y} 7${NC}  更新程序"
+    echo -e "${C}|${NC}  ${R} 8${NC}  一键卸载"
+    echo -e "${C}|${NC}  ${Y} 0${NC}  退出"
+    echo -e "${C}|                                               |${NC}"
+    echo -e "${C}+===============================================+${NC}"
     echo ""
 }
 
