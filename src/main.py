@@ -16,6 +16,7 @@ from speedtest import test_download_speed
 from baseline import compute_baseline, check_anomaly, check_path_change, check_speed_anomaly
 from alerter import send_alert, build_alert_message, build_daily_report
 from tg_bot import TelegramBot
+from geoip import get_path_countries
 
 running = True
 tg_bot = None
@@ -128,11 +129,14 @@ def do_traceroute_cycle(db, config):
                 last = db.get_last_alert_time("path_change", host)
                 if time.time() - last > cooldown and should_alert():
                     path_str = " -> ".join(h["ip"] for h in result["hops"][:8])
+                    countries = get_path_countries(result["hops"])
+                    geo_str = " → ".join(countries) if countries else "未知"
                     msg = build_alert_message("路径变化", "warning", config["server_name"], {
                         "目标": f"{name} ({host})",
                         "跳数": str(hop_count),
                         "变化": detail,
-                        "当前路径": path_str
+                        "当前路径": path_str,
+                        "经过地区": geo_str
                     })
                     send_alert(config, msg)
                     db.save_alert("path_change", "warning", f"{host} {detail}")
