@@ -1,5 +1,4 @@
 import requests
-import json
 import time
 import logging
 import threading
@@ -58,18 +57,18 @@ class TelegramBot:
         if chat_id != self.chat_id:
             return
         text = message.get("text", "").strip()
-        if text == "/start" or text == "/menu":
+        if text in ("/start", "/menu"):
             self._send_menu()
         elif text == "/status":
             self._action_status()
         elif text == "/speed":
-            self._action_speed()
+            threading.Thread(target=self._action_speed, daemon=True).start()
         elif text == "/baseline":
             self._action_baseline()
         elif text == "/chart":
             self._action_chart()
         elif text == "/geoip":
-            self._action_geoip()
+            threading.Thread(target=self._action_geoip, daemon=True).start()
 
     def _handle_callback(self, callback_query):
         chat_id = str(callback_query.get("message", {}).get("chat", {}).get("id", ""))
@@ -79,7 +78,7 @@ class TelegramBot:
         self._answer_callback(callback_query["id"])
         actions = {
             "status": self._action_status,
-            "speed": self._action_speed,
+            "speed": lambda: threading.Thread(target=self._action_speed, daemon=True).start(),
             "baseline": self._action_baseline,
             "history": self._action_history,
             "mute_1h": lambda: self._action_mute(3600),
@@ -88,28 +87,23 @@ class TelegramBot:
             "report": self._action_report,
             "menu": self._send_menu,
             "chart": self._action_chart,
-            "geoip": self._action_geoip,
-            "chart_1h": lambda: self._action_chart_hours(1),
-            "chart_6h": lambda: self._action_chart_hours(6),
-            "chart_24h": lambda: self._action_chart_hours(24),
+            "geoip": lambda: threading.Thread(target=self._action_geoip, daemon=True).start(),
+            "chart_1h": lambda: threading.Thread(target=self._action_chart_hours, args=(1,), daemon=True).start(),
+            "chart_6h": lambda: threading.Thread(target=self._action_chart_hours, args=(6,), daemon=True).start(),
+            "chart_24h": lambda: threading.Thread(target=self._action_chart_hours, args=(24,), daemon=True).start(),
         }
         action = actions.get(data)
         if action:
             action()
         else:
-            if data.startswith("chart_") and data.endswith("h"):
-                target = data.replace("chart_", "").replace("h", "")
-                try:
-                    hours = int(target)
-                    self._action_chart_hours(hours)
-                except:
-                    self._send_text(f"未知操作: {data}")
-            else:
-                self._send_text(f"未知操作: {data}")
+            self._send_text(f"未知操作: {data}")
 
     def _answer_callback(self, callback_id):
         url = f"{self.base_url}/answerCallbackQuery"
-        requests.post(url, json={"callback_query_id": callback_id}, timeout=5)
+        try:
+            requests.post(url, json={"callback_query_id": callback_id}, timeout=5)
+        except Exception:
+            pass
 
     def send_keyboard(self, text, buttons=None):
         if buttons is None:
@@ -118,7 +112,6 @@ class TelegramBot:
         payload = {
             "chat_id": self.chat_id,
             "text": text,
-            "parse_mode": "Markdown",
             "reply_markup": {"inline_keyboard": buttons}
         }
         try:
@@ -128,7 +121,7 @@ class TelegramBot:
 
     def _send_text(self, text):
         url = f"{self.base_url}/sendMessage"
-        payload = {"chat_id": self.chat_id, "text": text, "parse_mode": "Markdown"}
+        payload = {"chat_id": self.chat_id, "text": text}
         try:
             requests.post(url, json=payload, timeout=10)
         except Exception as e:
@@ -154,7 +147,7 @@ class TelegramBot:
 
     def _send_menu(self):
         self.send_keyboard(
-            f"🖥 *路由监测控制面板*\n\n服务器: `{self.config['server_name']}`\n\n"
+            f"🖥 路由监测控制面板\n\n服务器: {self.config['server_name']}\n\n"
             f"/start - 控制面板\n/status - 当前状态\n/speed - 立即测速\n"
             f"/baseline - 基线数据\n/chart - 趋势图\n/geoip - 路由地图",
             self._default_buttons()
@@ -162,15 +155,15 @@ class TelegramBot:
 
     def _action_status(self):
         summary = self.db.get_stats_summary(hours=1)
-        lines = [f"📊 *过去1小时状态*", f"服务器: `{self.config['server_name']}`", ""]
+        lines = [f"📊 过去1小时状态", f"服务器: {self.config['server_name']}", ""]
         if not summary:
             lines.append("暂无数据")
         else:
-            lines.append("| 目标 | 平均延迟 | 最低 | 最高 | 丢包 |")
-            lines.append("|------|----------|------|------|------|")
+            lines.append("目标 | 平均延迟 | 最低 | 最高 | 丢包")
+            lines.append("---|---|---|---|---")
             for row in summary:
                 host, name, avg, mn, mx, loss, cnt = row
-                lines.append(f"| {name} | {avg:.1f}ms | {mn:.1f}ms | {mx:.1f}ms | {loss:.1f}% |")
+                lines.append(f"{name} | {avg:.1f}ms | {mn:.1f}ms | {mx:.1f}ms | {loss:.1f}%")
         buttons = [[{"text": "◀️ 返回", "callback_data": "menu"}]]
         self.send_keyboard("\n".join(lines), buttons)
 
@@ -184,42 +177,42 @@ class TelegramBot:
         result = test_download_speed(url)
         if result["success"]:
             self._send_text(
-                f"🚀 *测速结果*\n\n"
-                f"速度: `{result['speed_mbps']:.1f} Mbps`\n"
-                f"下载: `{result['downloaded_bytes']/1024/1024:.1f} MB`\n"
-                f"耗时: `{result['elapsed_sec']:.1f}s`"
+                f"🚀 测速结果\n\n"
+                f"速度: {result['speed_mbps']:.1f} Mbps\n"
+                f"下载: {result['downloaded_bytes']/1024/1024:.1f} MB\n"
+                f"耗时: {result['elapsed_sec']:.1f}s"
             )
         else:
             self._send_text("❌ 测速失败")
 
     def _action_baseline(self):
-        lines = [f"📈 *基线数据*", f"服务器: `{self.config['server_name']}`", ""]
+        lines = [f"📈 基线数据", f"服务器: {self.config['server_name']}", ""]
         for t in self.config["ping_targets"]:
             host = t["host"]
             name = t["name"]
             bl = self.db.get_baseline(host)
             if bl:
                 avg, std, mn, mx = bl[0], bl[1], bl[2], bl[3]
-                lines.append(f"*{name}* ({host})")
-                lines.append(f"  平均: `{avg:.1f}ms` | 抖动: `{std:.1f}ms`")
-                lines.append(f"  范围: `{mn:.1f}ms` ~ `{mx:.1f}ms`")
+                lines.append(f"{name} ({host})")
+                lines.append(f"  平均: {avg:.1f}ms | 抖动: {std:.1f}ms")
+                lines.append(f"  范围: {mn:.1f}ms ~ {mx:.1f}ms")
                 lines.append("")
             else:
-                lines.append(f"*{name}*: 暂无基线")
+                lines.append(f"{name}: 暂无基线")
         buttons = [[{"text": "◀️ 返回", "callback_data": "menu"}]]
         self.send_keyboard("\n".join(lines), buttons)
 
     def _action_history(self):
         summary = self.db.get_stats_summary(hours=24)
-        lines = [f"📋 *过去24小时统计*", f"服务器: `{self.config['server_name']}`", ""]
+        lines = [f"📋 过去24小时统计", f"服务器: {self.config['server_name']}", ""]
         if not summary:
             lines.append("暂无数据")
         else:
-            lines.append("| 目标 | 平均延迟 | 最低 | 最高 | 丢包 | 样本数 |")
-            lines.append("|------|----------|------|------|------|--------|")
+            lines.append("目标 | 平均延迟 | 最低 | 最高 | 丢包 | 样本数")
+            lines.append("---|---|---|---|---|---")
             for row in summary:
                 host, name, avg, mn, mx, loss, cnt = row
-                lines.append(f"| {name} | {avg:.1f}ms | {mn:.1f}ms | {mx:.1f}ms | {loss:.1f}% | {cnt} |")
+                lines.append(f"{name} | {avg:.1f}ms | {mn:.1f}ms | {mx:.1f}ms | {loss:.1f}% | {cnt}")
         buttons = [[{"text": "◀️ 返回", "callback_data": "menu"}]]
         self.send_keyboard("\n".join(lines), buttons)
 
@@ -239,7 +232,7 @@ class TelegramBot:
              {"text": "24小时", "callback_data": "chart_24h"}],
             [{"text": "◀️ 返回", "callback_data": "menu"}]
         ]
-        self.send_keyboard("📉 *选择时间范围:*", buttons)
+        self.send_keyboard("📉 选择时间范围:", buttons)
 
     def _action_chart_hours(self, hours):
         from chart import generate_latency_chart, generate_loss_chart, generate_speed_chart
@@ -251,6 +244,7 @@ class TelegramBot:
             loss_chart = generate_loss_chart(self.db, t["host"], t["name"], hours=hours)
             if loss_chart:
                 self._send_text(loss_chart)
+            time.sleep(0.1)
         speed_chart = generate_speed_chart(self.db, hours=hours)
         if speed_chart:
             self._send_text(speed_chart)
@@ -271,6 +265,7 @@ class TelegramBot:
                 self._send_text(geo_text)
             else:
                 self._send_text(f"❌ {t['name']} 追踪失败")
+            time.sleep(0.1)
         buttons = [[{"text": "◀️ 返回", "callback_data": "menu"}]]
         self.send_keyboard("✅ 路由地图生成完毕", buttons)
 

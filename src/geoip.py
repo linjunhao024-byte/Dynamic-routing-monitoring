@@ -5,15 +5,23 @@ logger = logging.getLogger("geoip")
 
 _cache = {}
 
+_PRIVATE_PREFIXES = (
+    "10.", "127.", "192.168.",
+    "172.16.", "172.17.", "172.18.", "172.19.",
+    "172.20.", "172.21.", "172.22.", "172.23.",
+    "172.24.", "172.25.", "172.26.", "172.27.",
+    "172.28.", "172.29.", "172.30.", "172.31.",
+)
+
 def lookup(ip):
     if ip in _cache:
         return _cache[ip]
-    if ip.startswith(("10.", "172.16.", "172.17.", "172.18.", "172.19.", "172.2", "172.30.", "172.31.", "192.168.", "127.")):
+    if ip.startswith(_PRIVATE_PREFIXES):
         result = {"ip": ip, "country": "私有", "city": "本地", "org": "内网"}
         _cache[ip] = result
         return result
     try:
-        r = requests.get(f"http://ip-api.com/json/{ip}?fields=status,country,city,org,isp,as", timeout=5)
+        r = requests.get(f"https://ip-api.com/json/{ip}?fields=status,country,city,org,isp,as", timeout=5)
         data = r.json()
         if data.get("status") == "success":
             result = {

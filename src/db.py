@@ -1,15 +1,21 @@
 import sqlite3
 import time
 import json
-import os
+import threading
 
 class Database:
     def __init__(self, db_path):
         self.db_path = db_path
+        self._local = threading.local()
         self._init_db()
 
     def _get_conn(self):
-        return sqlite3.connect(self.db_path)
+        conn = getattr(self._local, 'conn', None)
+        if conn is None:
+            conn = sqlite3.connect(self.db_path, check_same_thread=False)
+            conn.execute("PRAGMA journal_mode=WAL")
+            self._local.conn = conn
+        return conn
 
     def _init_db(self):
         conn = self._get_conn()
@@ -74,8 +80,10 @@ class Database:
                 resolved INTEGER DEFAULT 0
             )
         """)
+        c.execute("CREATE INDEX IF NOT EXISTS idx_ping_ts ON ping_results(timestamp)")
+        c.execute("CREATE INDEX IF NOT EXISTS idx_ping_host ON ping_results(target_host, timestamp)")
+        c.execute("CREATE INDEX IF NOT EXISTS idx_alert_type ON alerts(alert_type, timestamp)")
         conn.commit()
-        conn.close()
 
     def save_ping(self, target_host, target_name, latency_ms, min_ms, max_ms, std_ms, packet_loss_pct, is_anomaly=False):
         conn = self._get_conn()
@@ -84,7 +92,6 @@ class Database:
             (time.time(), target_host, target_name, latency_ms, min_ms, max_ms, std_ms, packet_loss_pct, int(is_anomaly))
         )
         conn.commit()
-        conn.close()
 
     def save_traceroute(self, target_host, target_name, hops, hop_count, changed=False, change_detail=""):
         conn = self._get_conn()
@@ -93,7 +100,6 @@ class Database:
             (time.time(), target_host, target_name, json.dumps(hops), hop_count, int(changed), change_detail)
         )
         conn.commit()
-        conn.close()
 
     def save_speed(self, url, speed_mbps, downloaded_bytes, elapsed_sec, is_anomaly=False):
         conn = self._get_conn()
@@ -102,7 +108,6 @@ class Database:
             (time.time(), url, speed_mbps, downloaded_bytes, elapsed_sec, int(is_anomaly))
         )
         conn.commit()
-        conn.close()
 
     def get_recent_pings(self, target_host, count=100):
         conn = self._get_conn()
@@ -110,7 +115,6 @@ class Database:
             "SELECT latency_ms, min_ms, max_ms, std_ms, packet_loss_pct FROM ping_results WHERE target_host=? ORDER BY id DESC LIMIT ?",
             (target_host, count)
         ).fetchall()
-        conn.close()
         return rows
 
     def get_recent_speeds(self, count=20):
@@ -118,7 +122,6 @@ class Database:
         rows = conn.execute(
             "SELECT speed_mbps FROM speed_results ORDER BY id DESC LIMIT ?", (count,)
         ).fetchall()
-        conn.close()
         return rows
 
     def get_baseline(self, target_host):
@@ -127,7 +130,6 @@ class Database:
             "SELECT avg_latency_ms, std_latency_ms, min_latency_ms, max_latency_ms, hop_count, hops_json, avg_speed_mbps FROM baselines WHERE target_host=?",
             (target_host,)
         ).fetchone()
-        conn.close()
         return row
 
     def save_baseline(self, target_host, avg_latency, std_latency, min_latency, max_latency, hop_count, hops_json, avg_speed=None):
@@ -137,7 +139,6 @@ class Database:
             (target_host, avg_latency, std_latency, min_latency, max_latency, hop_count, hops_json, avg_speed, time.time())
         )
         conn.commit()
-        conn.close()
 
     def save_alert(self, alert_type, severity, message):
         conn = self._get_conn()
@@ -146,7 +147,6 @@ class Database:
             (time.time(), alert_type, severity, message)
         )
         conn.commit()
-        conn.close()
 
     def get_last_alert_time(self, alert_type, target_host=None):
         conn = self._get_conn()
@@ -160,7 +160,6 @@ class Database:
                 "SELECT timestamp FROM alerts WHERE alert_type=? ORDER BY id DESC LIMIT 1",
                 (alert_type,)
             ).fetchone()
-        conn.close()
         return row[0] if row else 0
 
     def cleanup_old_data(self, days=30):
@@ -171,7 +170,6 @@ class Database:
         conn.execute("DELETE FROM speed_results WHERE timestamp < ?", (cutoff,))
         conn.execute("DELETE FROM alerts WHERE timestamp < ?", (cutoff,))
         conn.commit()
-        conn.close()
 
     def get_stats_summary(self, hours=24):
         cutoff = time.time() - hours * 3600
@@ -180,5 +178,8 @@ class Database:
             "SELECT target_host, target_name, AVG(latency_ms), MIN(latency_ms), MAX(latency_ms), AVG(packet_loss_pct), COUNT(*) FROM ping_results WHERE timestamp > ? AND latency_ms IS NOT NULL GROUP BY target_host",
             (cutoff,)
         ).fetchall()
-        conn.close()
         return rows
+
+    def query(self, sql, params=()):
+        conn = self._get_conn()
+        return conn.execute(sql, params).fetchall()
