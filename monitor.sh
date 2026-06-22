@@ -124,30 +124,46 @@ update_program() {
     fi
 
     echo -e "  ${Y}[..] 发现新版本，正在更新...${NC}"
-    cd ~
+
+    # 先备份配置和数据到临时目录
+    TMP_BACKUP="/tmp/route-monitor-backup"
+    rm -rf "$TMP_BACKUP"
+    mkdir -p "$TMP_BACKUP"
+    cp "$INSTALL_DIR/config.local.json" "$TMP_BACKUP/" 2>/dev/null
+    cp "$INSTALL_DIR/monitor.db" "$TMP_BACKUP/" 2>/dev/null
+    [ -f "$INSTALL_DIR/.git_hash" ] && cp "$INSTALL_DIR/.git_hash" "$TMP_BACKUP/" 2>/dev/null
+
+    # 在 /tmp 目录操作，不依赖原目录
+    cd /tmp
     rm -rf route-monitor.new main.zip
     wget -q https://github.com/linjunhao024-byte/Dynamic-routing-monitoring/archive/refs/heads/main.zip
     unzip -qo main.zip
     mv Dynamic-routing-monitoring-main route-monitor.new
 
-    cp $INSTALL_DIR/config.local.json route-monitor.new/config.local.json 2>/dev/null
-    cp $INSTALL_DIR/monitor.db route-monitor.new/monitor.db 2>/dev/null
+    # 恢复配置和数据
+    cp "$TMP_BACKUP/config.local.json" route-monitor.new/ 2>/dev/null
+    cp "$TMP_BACKUP/monitor.db" route-monitor.new/ 2>/dev/null
     echo "$latest_hash" > route-monitor.new/.git_hash
+    rm -rf "$TMP_BACKUP"
 
-    rm -rf $INSTALL_DIR
-    mv route-monitor.new $INSTALL_DIR
+    # 替换安装目录
+    rm -rf "$INSTALL_DIR"
+    mv route-monitor.new "$INSTALL_DIR"
     rm -f main.zip
 
+    # 修复权限
     chmod +x "$INSTALL_DIR/monitor.sh"
     ln -sf "$INSTALL_DIR/monitor.sh" /usr/local/bin/monitor
 
-    cd $INSTALL_DIR
+    # 重建 venv
+    cd "$INSTALL_DIR"
     python3 -m venv venv
     source venv/bin/activate
     pip install -r requirements.txt --quiet 2>/dev/null
     deactivate
 
     systemctl restart $SERVICE
+    cd /root
     echo -e "  ${G}[OK] 更新完成，服务已重启${NC}"
     press_enter
 }
