@@ -2,10 +2,13 @@ import subprocess
 import re
 import platform
 
-def ping(host, count=5):
+def ping(host, count=10):
     result = {
         "host": host,
         "latency_ms": None,
+        "min_ms": None,
+        "max_ms": None,
+        "std_ms": None,
         "packet_loss_pct": 100.0,
         "success": False,
         "raw": ""
@@ -18,7 +21,7 @@ def ping(host, count=5):
         cmd = ["ping", "-c", str(count), "-W", "3", host]
 
     try:
-        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
         output = proc.stdout + proc.stderr
         result["raw"] = output
 
@@ -30,6 +33,13 @@ def ping(host, count=5):
         if latency_matches:
             latencies = [float(x) for x in latency_matches]
             result["latency_ms"] = sum(latencies) / len(latencies)
+            result["min_ms"] = min(latencies)
+            result["max_ms"] = max(latencies)
+            if len(latencies) > 1:
+                avg = result["latency_ms"]
+                result["std_ms"] = (sum((x - avg) ** 2 for x in latencies) / len(latencies)) ** 0.5
+            else:
+                result["std_ms"] = 0.0
             result["success"] = True
 
     except subprocess.TimeoutExpired:

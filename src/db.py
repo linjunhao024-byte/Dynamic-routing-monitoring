@@ -1,5 +1,6 @@
 import sqlite3
 import time
+import json
 import os
 
 class Database:
@@ -20,6 +21,9 @@ class Database:
                 target_host TEXT,
                 target_name TEXT,
                 latency_ms REAL,
+                min_ms REAL,
+                max_ms REAL,
+                std_ms REAL,
                 packet_loss_pct REAL,
                 is_anomaly INTEGER DEFAULT 0
             )
@@ -32,7 +36,19 @@ class Database:
                 target_name TEXT,
                 hops_json TEXT,
                 hop_count INTEGER,
-                changed INTEGER DEFAULT 0
+                changed INTEGER DEFAULT 0,
+                change_detail TEXT
+            )
+        """)
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS speed_results (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                timestamp REAL,
+                url TEXT,
+                speed_mbps REAL,
+                downloaded_bytes INTEGER,
+                elapsed_sec REAL,
+                is_anomaly INTEGER DEFAULT 0
             )
         """)
         c.execute("""
@@ -40,8 +56,11 @@ class Database:
                 target_host TEXT PRIMARY KEY,
                 avg_latency_ms REAL,
                 std_latency_ms REAL,
+                min_latency_ms REAL,
+                max_latency_ms REAL,
                 hop_count INTEGER,
                 hops_json TEXT,
+                avg_speed_mbps REAL,
                 updated_at REAL
             )
         """)
@@ -50,37 +69,54 @@ class Database:
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 timestamp REAL,
                 alert_type TEXT,
+                severity TEXT,
                 message TEXT,
-                sent INTEGER DEFAULT 0
+                resolved INTEGER DEFAULT 0
             )
         """)
         conn.commit()
         conn.close()
 
-    def save_ping(self, target_host, target_name, latency_ms, packet_loss_pct, is_anomaly=False):
+    def save_ping(self, target_host, target_name, latency_ms, min_ms, max_ms, std_ms, packet_loss_pct, is_anomaly=False):
         conn = self._get_conn()
         conn.execute(
-            "INSERT INTO ping_results (timestamp, target_host, target_name, latency_ms, packet_loss_pct, is_anomaly) VALUES (?,?,?,?,?,?)",
-            (time.time(), target_host, target_name, latency_ms, packet_loss_pct, int(is_anomaly))
+            "INSERT INTO ping_results (timestamp, target_host, target_name, latency_ms, min_ms, max_ms, std_ms, packet_loss_pct, is_anomaly) VALUES (?,?,?,?,?,?,?,?,?)",
+            (time.time(), target_host, target_name, latency_ms, min_ms, max_ms, std_ms, packet_loss_pct, int(is_anomaly))
         )
         conn.commit()
         conn.close()
 
-    def save_traceroute(self, target_host, target_name, hops, hop_count, changed=False):
-        import json
+    def save_traceroute(self, target_host, target_name, hops, hop_count, changed=False, change_detail=""):
         conn = self._get_conn()
         conn.execute(
-            "INSERT INTO traceroute_results (timestamp, target_host, target_name, hops_json, hop_count, changed) VALUES (?,?,?,?,?,?)",
-            (time.time(), target_host, target_name, json.dumps(hops), hop_count, int(changed))
+            "INSERT INTO traceroute_results (timestamp, target_host, target_name, hops_json, hop_count, changed, change_detail) VALUES (?,?,?,?,?,?,?)",
+            (time.time(), target_host, target_name, json.dumps(hops), hop_count, int(changed), change_detail)
         )
         conn.commit()
         conn.close()
 
-    def get_recent_pings(self, target_host, count=50):
+    def save_speed(self, url, speed_mbps, downloaded_bytes, elapsed_sec, is_anomaly=False):
+        conn = self._get_conn()
+        conn.execute(
+            "INSERT INTO speed_results (timestamp, url, speed_mbps, downloaded_bytes, elapsed_sec, is_anomaly) VALUES (?,?,?,?,?,?)",
+            (time.time(), url, speed_mbps, downloaded_bytes, elapsed_sec, int(is_anomaly))
+        )
+        conn.commit()
+        conn.close()
+
+    def get_recent_pings(self, target_host, count=100):
         conn = self._get_conn()
         rows = conn.execute(
-            "SELECT latency_ms, packet_loss_pct FROM ping_results WHERE target_host=? ORDER BY id DESC LIMIT ?",
+            "SELECT latency_ms, min_ms, max_ms, std_ms, packet_loss_pct FROM ping_results WHERE target_host=? ORDER BY id DESC LIMIT ?",
             (target_host, count)
+        ).fetchall()
+        conn.close()
+        return rows
+
+    def get_recent_speeds(self, count=20):
+        conn = self._get_conn()
+        rows = conn.execute(
+            "SELECT speed_mbps FROM speed_results ORDER BY id DESC LIMIT ?", (count,)
         ).fetchall()
         conn.close()
         return rows
@@ -88,26 +124,26 @@ class Database:
     def get_baseline(self, target_host):
         conn = self._get_conn()
         row = conn.execute(
-            "SELECT avg_latency_ms, std_latency_ms, hop_count, hops_json FROM baselines WHERE target_host=?",
+            "SELECT avg_latency_ms, std_latency_ms, min_latency_ms, max_latency_ms, hop_count, hops_json, avg_speed_mbps FROM baselines WHERE target_host=?",
             (target_host,)
         ).fetchone()
         conn.close()
         return row
 
-    def save_baseline(self, target_host, avg_latency, std_latency, hop_count, hops_json):
+    def save_baseline(self, target_host, avg_latency, std_latency, min_latency, max_latency, hop_count, hops_json, avg_speed=None):
         conn = self._get_conn()
         conn.execute(
-            "INSERT OR REPLACE INTO baselines (target_host, avg_latency_ms, std_latency_ms, hop_count, hops_json, updated_at) VALUES (?,?,?,?,?,?)",
-            (target_host, avg_latency, std_latency, hop_count, hops_json, time.time())
+            "INSERT OR REPLACE INTO baselines (target_host, avg_latency_ms, std_latency_ms, min_latency_ms, max_latency_ms, hop_count, hops_json, avg_speed_mbps, updated_at) VALUES (?,?,?,?,?,?,?,?,?)",
+            (target_host, avg_latency, std_latency, min_latency, max_latency, hop_count, hops_json, avg_speed, time.time())
         )
         conn.commit()
         conn.close()
 
-    def save_alert(self, alert_type, message):
+    def save_alert(self, alert_type, severity, message):
         conn = self._get_conn()
         conn.execute(
-            "INSERT INTO alerts (timestamp, alert_type, message) VALUES (?,?,?)",
-            (time.time(), alert_type, message)
+            "INSERT INTO alerts (timestamp, alert_type, severity, message) VALUES (?,?,?,?)",
+            (time.time(), alert_type, severity, message)
         )
         conn.commit()
         conn.close()
@@ -126,3 +162,23 @@ class Database:
             ).fetchone()
         conn.close()
         return row[0] if row else 0
+
+    def cleanup_old_data(self, days=30):
+        cutoff = time.time() - days * 86400
+        conn = self._get_conn()
+        conn.execute("DELETE FROM ping_results WHERE timestamp < ?", (cutoff,))
+        conn.execute("DELETE FROM traceroute_results WHERE timestamp < ?", (cutoff,))
+        conn.execute("DELETE FROM speed_results WHERE timestamp < ?", (cutoff,))
+        conn.execute("DELETE FROM alerts WHERE timestamp < ?", (cutoff,))
+        conn.commit()
+        conn.close()
+
+    def get_stats_summary(self, hours=24):
+        cutoff = time.time() - hours * 3600
+        conn = self._get_conn()
+        rows = conn.execute(
+            "SELECT target_host, target_name, AVG(latency_ms), MIN(latency_ms), MAX(latency_ms), AVG(packet_loss_pct), COUNT(*) FROM ping_results WHERE timestamp > ? AND latency_ms IS NOT NULL GROUP BY target_host",
+            (cutoff,)
+        ).fetchall()
+        conn.close()
+        return rows
