@@ -4,52 +4,50 @@
 
 ## 一键部署
 
-SSH 登录服务器后执行：
+SSH 登录服务器后，直接执行：
 
 ```bash
-# 安装 git（如果没有）
-sudo apt install -y git
-
-# 克隆仓库
-git clone https://github.com/你的用户名/仓库名.git ~/route-monitor
-cd ~/route-monitor
-
-# 运行部署脚本
+wget https://github.com/linjunhao024-byte/Dynamic-routing-monitoring/archive/refs/heads/main.zip && \
+unzip main.zip && \
+mv Dynamic-routing-monitoring-main route-monitor && \
+rm main.zip && \
+cd route-monitor && \
 bash deploy.sh
 ```
 
-首次运行会生成 `config.local.json`，编辑它填入你的配置：
+首次运行会提示你编辑配置文件：
 
 ```bash
-nano config.local.json
+nano ~/route-monitor/config.local.json
 ```
 
-填完后再次运行 `bash deploy.sh` 完成部署。
+填入你的 Telegram 和钉钉信息后，再执行一次：
+
+```bash
+cd ~/route-monitor && bash deploy.sh
+```
+
+部署完成。
 
 ## 配置说明
 
-编辑 `config.local.json`：
+编辑 `config.local.json`，只需要改这几项：
 
 ```json
 {
   "server_name": "给这台服务器起个名字",
-
   "mode": "lite",
-
   "telegram": {
     "enabled": true,
     "bot_token": "你的Bot Token",
     "chat_id": "你的Chat ID"
   },
-
   "dingtalk": {
     "enabled": true,
     "webhook_url": "你的钉钉Webhook地址"
   }
 }
 ```
-
-其他配置一般不用改。
 
 ### 获取 Telegram Bot Token
 
@@ -110,7 +108,10 @@ nano ~/route-monitor/config.local.json
 
 ```bash
 cd ~/route-monitor
-git pull
+wget -O main.zip https://github.com/linjunhao024-byte/Dynamic-routing-monitoring/archive/refs/heads/main.zip
+unzip -o main.zip -d /tmp/route-update
+cp /tmp/route-update/Dynamic-routing-monitoring-main/src/*.py src/
+rm -rf /tmp/route-update main.zip
 sudo systemctl restart route-monitor
 ```
 
