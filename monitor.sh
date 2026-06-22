@@ -210,6 +210,7 @@ edit_config() {
         local tg_chatid=$(get_config_value "telegram.chat_id")
         local dt_enabled=$(get_config_value "dingtalk.enabled")
         local dt_webhook=$(get_config_value "dingtalk.webhook_url")
+        local dt_secret=$(get_config_value "dingtalk.secret")
         local ping_interval=$(get_config_value "monitoring.ping_interval_sec")
         local tr_interval=$(get_config_value "monitoring.traceroute_interval_sec")
         local latency_ms=$(get_config_value "alert.latency_abs_threshold_ms")
@@ -232,13 +233,14 @@ edit_config() {
         c "${C}|${NC}  ${B}钉钉${NC}"
         c "${C}|${NC}  ${Y} 5${NC}  启用状态:      ${B}${dt_enabled}${NC}"
         c "${C}|${NC}  ${Y} 6${NC}  Webhook:       ${B}${dt_webhook:0:30}...${NC}"
+        c "${C}|${NC}  ${Y} 7${NC}  加签Secret:    ${B}${dt_secret:0:10}...${NC}"
         c "${C}|${NC}"
         c "${C}|${NC}  ${B}监测参数${NC}"
-        c "${C}|${NC}  ${Y} 7${NC}  Ping间隔(秒):  ${B}${ping_interval}${NC}"
-        c "${C}|${NC}  ${Y} 8${NC}  Traceroute间隔:${B}${tr_interval}${NC}"
-        c "${C}|${NC}  ${Y} 9${NC}  延迟阈值(ms):  ${B}${latency_ms}${NC}"
-        c "${C}|${NC}  ${Y}10${NC}  丢包阈值(%):   ${B}${loss_pct}${NC}"
-        c "${C}|${NC}  ${Y}11${NC}  告警冷却(秒):  ${B}${cooldown}${NC}"
+        c "${C}|${NC}  ${Y} 8${NC}  Ping间隔(秒):  ${B}${ping_interval}${NC}"
+        c "${C}|${NC}  ${Y} 9${NC}  Traceroute间隔:${B}${tr_interval}${NC}"
+        c "${C}|${NC}  ${Y}10${NC}  延迟阈值(ms):  ${B}${latency_ms}${NC}"
+        c "${C}|${NC}  ${Y}11${NC}  丢包阈值(%):   ${B}${loss_pct}${NC}"
+        c "${C}|${NC}  ${Y}12${NC}  告警冷却(秒):  ${B}${cooldown}${NC}"
         c "${C}|${NC}"
         c "${C}|${NC}  ${G} s${NC}  保存并返回"
         c "${C}|${NC}  ${R} q${NC}  不保存返回"
@@ -273,22 +275,26 @@ edit_config() {
                 [ -n "$val" ] && set_config_value "dingtalk.webhook_url" "$val"
                 ;;
             7)
+                read -p "  加签Secret: " val
+                [ -n "$val" ] && set_config_value "dingtalk.secret" "$val"
+                ;;
+            8)
                 read -p "  Ping间隔(秒): " val
                 [[ "$val" =~ ^[0-9]+$ ]] && set_config_value "monitoring.ping_interval_sec" "$val"
                 ;;
-            8)
+            9)
                 read -p "  Traceroute间隔(秒): " val
                 [[ "$val" =~ ^[0-9]+$ ]] && set_config_value "monitoring.traceroute_interval_sec" "$val"
                 ;;
-            9)
+            10)
                 read -p "  延迟阈值(ms): " val
                 [[ "$val" =~ ^[0-9]+$ ]] && set_config_value "alert.latency_abs_threshold_ms" "$val"
                 ;;
-            10)
+            11)
                 read -p "  丢包阈值(%): " val
                 [[ "$val" =~ ^[0-9]+$ ]] && set_config_value "alert.packet_loss_threshold_pct" "$val"
                 ;;
-            11)
+            12)
                 read -p "  告警冷却(秒): " val
                 [[ "$val" =~ ^[0-9]+$ ]] && set_config_value "alert.cooldown_sec" "$val"
                 ;;
