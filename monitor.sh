@@ -6,68 +6,121 @@ SERVICE="route-monitor"
 INSTALL_DIR="/root/route-monitor"
 CONFIG_FILE="$INSTALL_DIR/config.local.json"
 
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-CYAN='\033[0;36m'
+# 颜色
+R='\033[0;31m'
+G='\033[0;32m'
+Y='\033[1;33m'
+C='\033[0;36m'
+B='\033[1;37m'
+D='\033[2;37m'
 NC='\033[0m'
+
+get_server_name() {
+    if [ -f "$CONFIG_FILE" ]; then
+        grep -o '"server_name"[[:space:]]*:[[:space:]]*"[^"]*"' "$CONFIG_FILE" | cut -d'"' -f4
+    else
+        echo "未配置"
+    fi
+}
+
+get_uptime() {
+    if systemctl is-active --quiet $SERVICE 2>/dev/null; then
+        systemctl show $SERVICE --property=ActiveEnterTimestamp --value 2>/dev/null | \
+            xargs -I{} bash -c 'echo $(($(date +%s) - $(date -d "{}" +%s)))' 2>/dev/null | \
+            awk '{
+                if ($1 < 60) printf "%d秒", $1
+                else if ($1 < 3600) printf "%d分%d秒", $1/60, $1%60
+                else if ($1 < 86400) printf "%d小时%d分", $1/3600, ($1%3600)/60
+                else printf "%d天%d小时", $1/86400, ($1%86400)/3600
+            }'
+    fi
+}
 
 show_menu() {
     clear
-    echo ""
-    echo -e "${CYAN}╔══════════════════════════════════════════╗${NC}"
-    echo -e "${CYAN}║        AWS 路由监测 - 管理面板           ║${NC}"
-    echo -e "${CYAN}╚══════════════════════════════════════════╝${NC}"
-    echo ""
+    local name=$(get_server_name)
+    local running=false
+    systemctl is-active --quiet $SERVICE 2>/dev/null && running=true
 
-    # 显示服务状态
-    if systemctl is-active --quiet $SERVICE 2>/dev/null; then
-        echo -e "  服务状态: ${GREEN}● 运行中${NC}"
+    echo ""
+    echo -e "  ${C}┌─────────────────────────────────────────────┐${NC}"
+    echo -e "  ${C}│${NC}  ${B}⚡ AWS Route Monitor${NC}                       ${C}│${NC}"
+    echo -e "  ${C}├─────────────────────────────────────────────┤${NC}"
+    echo -e "  ${C}│${NC}                                             ${C}│${NC}"
+
+    if $running; then
+        local uptime=$(get_uptime)
+        echo -e "  ${C}│${NC}  状态  ${G}● 运行中${NC}  ${D}已运行 ${uptime}${NC}         ${C}│${NC}"
     else
-        echo -e "  服务状态: ${RED}● 已停止${NC}"
+        echo -e "  ${C}│${NC}  状态  ${R}● 已停止${NC}                             ${C}│${NC}"
     fi
 
-    # 显示服务器名称
-    if [ -f "$CONFIG_FILE" ]; then
-        name=$(grep -o '"server_name"[[:space:]]*:[[:space:]]*"[^"]*"' "$CONFIG_FILE" | cut -d'"' -f4)
-        echo -e "  服务器:   ${CYAN}$name${NC}"
-    fi
+    echo -e "  ${C}│${NC}  服务器 ${B}${name}${NC}$(printf '%*s' $((24 - ${#name})) '')${C}│${NC}"
+    echo -e "  ${C}│${NC}                                             ${C}│${NC}"
+    echo -e "  ${C}├─────────────────────────────────────────────┤${NC}"
+    echo -e "  ${C}│${NC}                                             ${C}│${NC}"
+    echo -e "  ${C}│${NC}  ${Y}1${NC}  📊  查看状态                              ${C}│${NC}"
+    echo -e "  ${C}│${NC}  ${Y}2${NC}  📜  查看实时日志                          ${C}│${NC}"
+    echo -e "  ${C}│${NC}  ${Y}3${NC}  🔄  重启服务                              ${C}│${NC}"
+    echo -e "  ${C}│${NC}  ${Y}4${NC}  ⏹   停止服务                              ${C}│${NC}"
+    echo -e "  ${C}│${NC}  ${Y}5${NC}  ⚙️   重新配置                              ${C}│${NC}"
+    echo -e "  ${C}│${NC}  ${Y}6${NC}  🔔  测试告警                              ${C}│${NC}"
+    echo -e "  ${C}│${NC}  ${Y}7${NC}  ⬆️   更新程序                              ${C}│${NC}"
+    echo -e "  ${C}│${NC}  ${R}8${NC}  🗑   一键卸载                              ${C}│${NC}"
+    echo -e "  ${C}│${NC}  ${Y}0${NC}  🚪  退出                                  ${C}│${NC}"
+    echo -e "  ${C}│${NC}                                             ${C}│${NC}"
+    echo -e "  ${C}└─────────────────────────────────────────────┘${NC}"
+    echo ""
+}
 
+press_enter() {
     echo ""
-    echo -e "  ${YELLOW}1)${NC} 查看状态"
-    echo -e "  ${YELLOW}2)${NC} 查看实时日志"
-    echo -e "  ${YELLOW}3)${NC} 重启服务"
-    echo -e "  ${YELLOW}4)${NC} 停止服务"
-    echo -e "  ${YELLOW}5)${NC} 重新配置"
-    echo -e "  ${YELLOW}6)${NC} 测试告警"
-    echo -e "  ${YELLOW}7)${NC} 更新程序"
-    echo -e "  ${RED}8)${NC} 一键卸载"
-    echo -e "  ${YELLOW}0)${NC} 退出"
-    echo ""
+    read -p "  按回车返回菜单..." _
 }
 
 test_alert() {
-    echo -e "${CYAN}正在发送测试消息...${NC}"
-
+    echo ""
+    echo -e "  ${C}正在发送测试消息...${NC}"
     PYTHON="$INSTALL_DIR/venv/bin/python3"
-    $PYTHON -c "
-import sys
+    result=$($PYTHON -c "
+import sys, os
 sys.path.insert(0, '$INSTALL_DIR/src')
+os.chdir('$INSTALL_DIR')
 from config import load_config
 from alerter import send_alert
-config = load_config('$CONFIG_FILE')
+config = load_config()
 msg = '🔔 路由监测测试消息\n\n服务器: ' + config['server_name'] + '\n状态: 告警通道配置正常\n\n如果你看到这条消息，说明配置成功！'
-if send_alert(config, msg):
-    print('发送成功')
-else:
-    print('发送失败，请检查配置')
-"
-    echo ""
-    read -p "按回车返回菜单..." _
+ok = send_alert(config, msg)
+print('ok' if ok else 'fail')
+" 2>/dev/null)
+    if [ "$result" = "ok" ]; then
+        echo -e "  ${G}✓ 测试消息已发送，请检查 TG 和钉钉${NC}"
+    else
+        echo -e "  ${R}✗ 发送失败，请检查配置${NC}"
+    fi
+    press_enter
 }
 
 update_program() {
-    echo -e "${CYAN}正在更新...${NC}"
+    echo ""
+    echo -e "  ${C}正在检查更新...${NC}"
+
+    # 获取当前版本
+    current_hash=""
+    if [ -f "$INSTALL_DIR/.git_hash" ]; then
+        current_hash=$(cat "$INSTALL_DIR/.git_hash")
+    fi
+
+    # 获取最新版本
+    latest_hash=$(curl -s "https://api.github.com/repos/linjunhao024-byte/Dynamic-routing-monitoring/commits/main" 2>/dev/null | grep -o '"sha":"[^"]*"' | head -1 | cut -d'"' -f4)
+
+    if [ -n "$latest_hash" ] && [ "$current_hash" = "$latest_hash" ]; then
+        echo -e "  ${G}✓ 已是最新版本${NC}"
+        press_enter
+        return
+    fi
+
+    echo -e "  ${Y}发现新版本，正在更新...${NC}"
     cd ~
     rm -rf route-monitor.new main.zip
     wget -q https://github.com/linjunhao024-byte/Dynamic-routing-monitoring/archive/refs/heads/main.zip
@@ -77,6 +130,9 @@ update_program() {
     # 保留配置和数据
     cp $INSTALL_DIR/config.local.json route-monitor.new/config.local.json 2>/dev/null
     cp $INSTALL_DIR/monitor.db route-monitor.new/monitor.db 2>/dev/null
+
+    # 保存版本号
+    echo "$latest_hash" > route-monitor.new/.git_hash
 
     # 替换
     rm -rf $INSTALL_DIR
@@ -91,63 +147,67 @@ update_program() {
     deactivate
 
     systemctl restart $SERVICE
-    echo -e "${GREEN}更新完成，服务已重启${NC}"
-    echo ""
-    read -p "按回车返回菜单..." _
+    echo -e "  ${G}✓ 更新完成，服务已重启${NC}"
+    press_enter
 }
 
 uninstall() {
     echo ""
-    echo -e "${RED}╔══════════════════════════════════════════╗${NC}"
-    echo -e "${RED}║           确认卸载？                     ║${NC}"
-    echo -e "${RED}╚══════════════════════════════════════════╝${NC}"
+    echo -e "  ${R}┌─────────────────────────────────────────────┐${NC}"
+    echo -e "  ${R}│  ⚠️  确认卸载？此操作不可恢复              │${NC}"
+    echo -e "  ${R}└─────────────────────────────────────────────┘${NC}"
     echo ""
-    read -p "确定要卸载路由监测工具吗？(y/n): " confirm
-    if [ "$confirm" != "y" ] && [ "$confirm" != "Y" ]; then
-        echo -e "${YELLOW}已取消${NC}"
-        read -p "按回车返回菜单..." _
+    read -p "  输入 yes 确认卸载: " confirm
+    if [ "$confirm" != "yes" ]; then
+        echo -e "  ${Y}已取消${NC}"
+        press_enter
         return
     fi
 
-    echo -e "${YELLOW}正在卸载...${NC}"
+    echo ""
+    echo -e "  ${Y}正在卸载...${NC}"
     systemctl stop $SERVICE 2>/dev/null
     systemctl disable $SERVICE 2>/dev/null
     rm -f /etc/systemd/system/$SERVICE.service
     systemctl daemon-reload
     rm -f /usr/local/bin/monitor
     rm -rf $INSTALL_DIR
-    echo -e "${GREEN}卸载完成${NC}"
+    echo ""
+    echo -e "  ${G}✓ 卸载完成${NC}"
+    echo ""
     exit 0
 }
 
 while true; do
     show_menu
-    read -p "请选择操作 [0-8]: " choice
+    read -p "  选择操作 [0-8]: " choice
     case $choice in
         1)
-            systemctl status $SERVICE --no-pager
             echo ""
-            read -p "按回车返回菜单..." _
+            systemctl status $SERVICE --no-pager
+            press_enter
             ;;
         2)
-            echo -e "${CYAN}按 Ctrl+C 退出日志${NC}"
+            echo ""
+            echo -e "  ${C}按 Ctrl+C 退出日志${NC}"
+            echo ""
             journalctl -u $SERVICE -f --no-pager
             ;;
         3)
             systemctl restart $SERVICE
-            echo -e "${GREEN}服务已重启${NC}"
-            sleep 1
-            read -p "按回车返回菜单..." _
+            echo ""
+            echo -e "  ${G}✓ 服务已重启${NC}"
+            press_enter
             ;;
         4)
             systemctl stop $SERVICE
-            echo -e "${YELLOW}服务已停止${NC}"
-            sleep 1
-            read -p "按回车返回菜单..." _
+            echo ""
+            echo -e "  ${Y}⏹ 服务已停止${NC}"
+            press_enter
             ;;
         5)
             cd $INSTALL_DIR && bash deploy.sh
-            read -p "按回车返回菜单..." _
+            press_enter
             ;;
         6)
             test_alert
@@ -159,11 +219,14 @@ while true; do
             uninstall
             ;;
         0)
-            echo -e "${GREEN}退出${NC}"
+            echo ""
+            echo -e "  ${G}👋 再见${NC}"
+            echo ""
             exit 0
             ;;
         *)
-            echo -e "${RED}无效选择${NC}"
+            echo ""
+            echo -e "  ${R}✗ 无效选择${NC}"
             sleep 1
             ;;
     esac
