@@ -1,0 +1,58 @@
+{
+  "server_name": "tokyo-aws-01",
+  "region": "tokyo",
+
+  "ping_targets": [
+    {"host": "8.8.8.8", "name": "Google DNS"},
+    {"host": "1.1.1.1", "name": "Cloudflare DNS"},
+    {"host": "208.67.222.222", "name": "OpenDNS"},
+    {"host": "168.63.129.16", "name": "Azure"}
+  ],
+
+  "traceroute_targets": [
+    {"host": "8.8.8.8", "name": "Google"},
+    {"host": "1.1.1.1", "name": "Cloudflare"}
+  ],
+
+  "sibling_servers": [
+    {"host": "YOUR_SERVER_B_IP", "name": "tokyo-aws-02", "region": "tokyo"}
+  ],
+
+  "mode": "lite",
+
+  "monitoring": {
+    "ping_interval_sec": 30,
+    "ping_count": 3,
+    "traceroute_interval_sec": 600,
+    "baseline_sample_count": 30
+  },
+
+  "alert": {
+    "latency_multiplier": 2.0,
+    "latency_abs_threshold_ms": 100,
+    "packet_loss_threshold_pct": 5.0,
+    "consecutive_failures": 3,
+    "cooldown_sec": 300
+  },
+
+  "telegram": {
+    "enabled": false,
+    "bot_token": "YOUR_BOT_TOKEN",
+    "chat_id": "YOUR_CHAT_ID"
+  },
+
+  "dingtalk": {
+    "enabled": false,
+    "webhook_url": "YOUR_DINGTALK_WEBHOOK_URL",
+    "secret": ""
+  },
+
+  "database": {
+    "path": "monitor.db"
+  },
+
+  "log": {
+    "level": "INFO",
+    "file": "monitor.log"
+  }
+}
