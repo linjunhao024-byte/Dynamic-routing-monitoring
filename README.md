@@ -8,16 +8,19 @@
 - **丢包监测**: 检测丢包率突增
 - **路径追踪**: traceroute 检测路由路径变化（绕路）
 - **带宽监测**: 定期测速，检测带宽下降
+- **GeoIP 路由地图**: 显示路由经过的国家/地区
+- **历史趋势图**: 延迟/丢包/带宽趋势可视化
 - **基线对比**: 自动学习正常状态，偏离时告警
 - **恢复通知**: 网络恢复正常时也会通知
 - **每日报告**: 每天自动发送一份统计报告
-- **自动清理**: 定期清理过期数据
+- **TG 控制面板**: 在 Telegram 里直接操作，不用登录服务器
 
 ## 一键部署
 
 SSH 登录服务器后，直接执行：
 
 ```bash
+apt install -y unzip && \
 wget https://github.com/linjunhao024-byte/Dynamic-routing-monitoring/archive/refs/heads/main.zip && \
 unzip main.zip && \
 mv Dynamic-routing-monitoring-main route-monitor && \
@@ -26,105 +29,76 @@ cd route-monitor && \
 bash deploy.sh
 ```
 
-首次运行会提示你编辑配置文件：
+脚本会自动：
+1. 安装系统依赖
+2. 创建 Python 虚拟环境
+3. 交互式询问配置（服务器名称、TG/钉钉信息）
+4. 配置系统服务
+5. 启动服务
 
-```bash
-nano ~/route-monitor/config.local.json
-```
-
-填入你的 Telegram 和钉钉信息后，再执行一次：
+## 重新配置
 
 ```bash
 cd ~/route-monitor && bash deploy.sh
 ```
 
-部署完成。
+已有的配置会提示是否重新配置。
 
-## 配置说明
+## Telegram 控制面板
 
-编辑 `config.local.json`，只需要改这几项：
+给 bot 发 `/start` 弹出控制面板：
 
-```json
-{
-  "server_name": "tokyo-aws-01",
-  "telegram": {
-    "enabled": true,
-    "bot_token": "你的Bot Token",
-    "chat_id": "你的Chat ID"
-  },
-  "dingtalk": {
-    "enabled": true,
-    "webhook_url": "你的钉钉Webhook地址"
-  }
-}
-```
-
-### 获取 Telegram Bot Token
-
-1. Telegram 搜索 `@BotFather`
-2. 发送 `/newbot`，按提示创建
-3. 拿到 token
-
-### 获取 Telegram Chat ID
-
-1. 搜索 `@userinfobot`
-2. 给它发任意消息
-3. 拿到 Id
-
-### 获取钉钉 Webhook
-
-1. 钉钉群 → 群设置 → 智能群助手 → 添加机器人
-2. 选自定义，安全设置选自定义关键词，填：`路由监测告警`
-3. 复制 webhook 地址
-
-## 告警触发条件
-
-| 条件 | 级别 | 说明 |
-|------|------|------|
-| 延迟 > 基线 × 1.8 | warning | 连续 3 次后告警 |
-| 延迟 > 80ms | critical | 连续 3 次后告警 |
-| 丢包 > 3% | critical | 连续 3 次后告警 |
-| 抖动 > 基线 × 3 | warning | 连续 3 次后告警 |
-| 带宽下降 > 50% | warning | 触发告警 |
-| 路由跳 IP 变化 | warning | 立即告警 |
-| 网络恢复正常 | recovery | 自动通知 |
+| 按钮 | 功能 |
+|------|------|
+| 📊 当前状态 | 查看过去1小时延迟/丢包 |
+| 🚀 立即测速 | 执行带宽测速 |
+| 📈 基线数据 | 查看各目标延迟基线 |
+| 📋 历史记录 | 过去24小时统计 |
+| 📉 趋势图 | 延迟/丢包/带宽趋势图 |
+| 🗺 路由地图 | traceroute + GeoIP 地理位置 |
+| 📝 每日报告 | 手动生成每日报告 |
+| 🔇 静音 | 暂停告警推送 |
 
 ## 常用命令
 
 ```bash
 # 查看状态
-sudo systemctl status route-monitor
+systemctl status route-monitor
 
 # 查看实时日志
-sudo journalctl -u route-monitor -f
+journalctl -u route-monitor -f
 
-# 重启（改配置后）
-sudo systemctl restart route-monitor
+# 重启
+systemctl restart route-monitor
 
 # 停止
-sudo systemctl stop route-monitor
+systemctl stop route-monitor
 
-# 编辑配置
-nano ~/route-monitor/config.local.json
+# 重新配置
+bash ~/route-monitor/deploy.sh
 ```
 
 ## 更新
 
 ```bash
-cd ~/route-monitor
-wget -O main.zip https://github.com/linjunhao024-byte/Dynamic-routing-monitoring/archive/refs/heads/main.zip
-unzip -o main.zip -d /tmp/route-update
-cp /tmp/route-update/Dynamic-routing-monitoring-main/src/*.py src/
-rm -rf /tmp/route-update main.zip
-sudo systemctl restart route-monitor
+cd ~ && \
+rm -rf route-monitor && \
+wget https://github.com/linjunhao024-byte/Dynamic-routing-monitoring/archive/refs/heads/main.zip && \
+unzip main.zip && \
+mv Dynamic-routing-monitoring-main route-monitor && \
+rm main.zip && \
+cd route-monitor && \
+bash deploy.sh
 ```
+
+选择不重新配置即可保留原有设置。
 
 ## 卸载
 
 ```bash
-sudo systemctl stop route-monitor
-sudo systemctl disable route-monitor
-sudo rm /etc/systemd/system/route-monitor.service
-sudo systemctl daemon-reload
+systemctl stop route-monitor
+systemctl disable route-monitor
+rm /etc/systemd/system/route-monitor.service
+systemctl daemon-reload
 rm -rf ~/route-monitor
 ```
