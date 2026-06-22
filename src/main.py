@@ -119,10 +119,11 @@ def do_traceroute_cycle(db, config):
             hop_count = result["hop_count"]
             baseline = db.get_baseline(host)
             baseline_hops = baseline[5] if baseline else None
-            if baseline_hops:
+            # 首次运行或基线为空时不报路径变化
+            if baseline_hops and baseline_hops != "[]" and baseline_hops != "null":
                 changed, detail = check_path_change(result["hops"], baseline_hops)
             else:
-                changed, detail = False, "first run"
+                changed, detail = False, "first run, setting baseline"
             db.save_traceroute(host, name, result["hops"], hop_count, changed, detail)
             if changed:
                 cooldown = config["alert"]["cooldown_sec"]

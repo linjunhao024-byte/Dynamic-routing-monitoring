@@ -26,9 +26,19 @@ def traceroute(host, max_hops=20):
         lines = output.strip().split("\n")
 
         for line in lines:
+            # 跳过第一行（包含目标IP的头部）
+            if "traceroute to" in line or "tracert" in line.lower():
+                continue
+            # 跳过包含 "*" 的行（超时跳）
+            if "*" in line and not re.search(ip_pattern, line):
+                continue
+
             ips = re.findall(ip_pattern, line)
             if ips:
                 hop_ip = ips[0]
+                # 跳过保留 IP 段
+                if hop_ip.startswith(("240.", "241.", "242.", "243.", "244.", "245.", "246.", "247.", "0.")):
+                    continue
                 times = re.findall(r"(\d+(?:\.\d+)?)\s*ms", line)
                 avg_time = sum(float(t) for t in times) / len(times) if times else None
                 result["hops"].append({"ip": hop_ip, "rtt_ms": avg_time})
