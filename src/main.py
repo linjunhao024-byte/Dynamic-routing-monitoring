@@ -15,8 +15,10 @@ from tracer import traceroute
 from speedtest import test_download_speed
 from baseline import compute_baseline, check_anomaly, check_path_change, check_speed_anomaly
 from alerter import send_alert, build_alert_message, build_daily_report
+from tg_bot import TelegramBot
 
 running = True
+tg_bot = None
 
 def signal_handler(sig, frame):
     global running
@@ -42,6 +44,12 @@ def setup_logging(config):
     root.setLevel(level)
     root.addHandler(console)
     root.addHandler(file_handler)
+
+def should_alert():
+    global tg_bot
+    if tg_bot and tg_bot.is_muted():
+        return False
+    return True
 
 def do_ping_cycle(db, config):
     logger = logging.getLogger("ping")
@@ -70,7 +78,7 @@ def do_ping_cycle(db, config):
                 if consecutive[host] >= threshold:
                     cooldown = config["alert"]["cooldown_sec"]
                     last = db.get_last_alert_time("ping_anomaly", host)
-                    if time.time() - last > cooldown:
+                    if time.time() - last > cooldown and should_alert():
                         msg = build_alert_message("延迟/丢包异常", severity, config["server_name"], {
                             "目标": f"{name} ({host})",
                             "延迟": f"{latency:.1f}ms (基线: {db.get_baseline(host)[0]:.1f}ms)" if db.get_baseline(host) else f"{latency:.1f}ms",
@@ -84,7 +92,7 @@ def do_ping_cycle(db, config):
                         logger.warning(f"ALERT SENT [{severity}]: {name} {reason}")
             else:
                 if consecutive.get(host, 0) >= config["alert"]["consecutive_failures"]:
-                    if config["alert"].get("recovery_notify"):
+                    if config["alert"].get("recovery_notify") and should_alert():
                         msg = build_alert_message("延迟恢复", "recovery", config["server_name"], {
                             "目标": f"{name} ({host})",
                             "当前延迟": f"{latency:.1f}ms",
@@ -118,7 +126,7 @@ def do_traceroute_cycle(db, config):
             if changed:
                 cooldown = config["alert"]["cooldown_sec"]
                 last = db.get_last_alert_time("path_change", host)
-                if time.time() - last > cooldown:
+                if time.time() - last > cooldown and should_alert():
                     path_str = " -> ".join(h["ip"] for h in result["hops"][:8])
                     msg = build_alert_message("路径变化", "warning", config["server_name"], {
                         "目标": f"{name} ({host})",
@@ -152,7 +160,7 @@ def do_speedtest_cycle(db, config):
         if is_anomaly:
             cooldown = config["alert"]["cooldown_sec"]
             last = db.get_last_alert_time("speed_anomaly")
-            if time.time() - last > cooldown:
+            if time.time() - last > cooldown and should_alert():
                 msg = build_alert_message("带宽下降", "warning", config["server_name"], {
                     "当前速度": f"{speed:.1f}Mbps",
                     "原因": reason
@@ -184,12 +192,19 @@ def do_cleanup(db, config):
     db.cleanup_old_data(days)
 
 def main():
-    global running
+    global running, tg_bot
     config = load_config()
     setup_logging(config)
     logger = logging.getLogger("main")
     db = Database(config["database"]["path"])
     server_name = config["server_name"]
+
+    tg_cfg = config.get("telegram", {})
+    if tg_cfg.get("enabled") and tg_cfg.get("bot_token"):
+        tg_bot = TelegramBot(tg_cfg["bot_token"], tg_cfg["chat_id"], db, config)
+        tg_bot.start_polling()
+        logger.info("Telegram bot started")
+
     logger.info(f"{'='*50}")
     logger.info(f"AWS Route Monitor - {server_name}")
     logger.info(f"Mode: {config.get('mode', 'full')}")
@@ -251,6 +266,8 @@ def main():
             logger.error(f"Error in main loop: {e}", exc_info=True)
             time.sleep(5)
 
+    if tg_bot:
+        tg_bot.stop()
     logger.info("Monitor stopped.")
 
 if __name__ == "__main__":
