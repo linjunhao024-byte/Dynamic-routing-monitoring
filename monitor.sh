@@ -8,13 +8,13 @@ SERVICE="route-monitor"
 INSTALL_DIR="/root/route-monitor"
 CONFIG_FILE="$INSTALL_DIR/config.local.json"
 
-R='\033[0;31m'
-G='\033[0;32m'
-Y='\033[1;33m'
-C='\033[0;36m'
-B='\033[1;37m'
-D='\033[2;37m'
-NC='\033[0m'
+R=$'\e[0;31m'
+G=$'\e[0;32m'
+Y=$'\e[1;33m'
+C=$'\e[0;36m'
+B=$'\e[1;37m'
+D=$'\e[2;37m'
+NC=$'\e[0m'
 
 get_server_name() {
     if [ -f "$CONFIG_FILE" ]; then
@@ -51,31 +51,31 @@ show_menu() {
     systemctl is-active --quiet $SERVICE 2>/dev/null && running=true
 
     echo ""
-    echo -e "${C}+===============================================+${NC}"
-    echo -e "${C}|          AWS Route Monitor  v1.0              |${NC}"
-    echo -e "${C}+===============================================+${NC}"
+    echo "${C}+===============================================+${NC}"
+    echo "${C}|          AWS Route Monitor  v1.0              |${NC}"
+    echo "${C}+===============================================+${NC}"
 
     if $running; then
         local uptime=$(get_uptime)
-        echo -e "${C}|${NC}  ${G}[RUNNING]${NC} ${D}已运行 ${uptime}${NC}"
+        echo "${C}|${NC}  ${G}[RUNNING]${NC} ${D}已运行 ${uptime}${NC}"
     else
-        echo -e "${C}|${NC}  ${R}[STOPPED]${NC}"
+        echo "${C}|${NC}  ${R}[STOPPED]${NC}"
     fi
 
-    echo -e "${C}|${NC}  服务器: ${B}${name}${NC}"
-    echo -e "${C}+===============================================+${NC}"
-    echo -e "${C}|                                               |${NC}"
-    echo -e "${C}|${NC}  ${Y} 1${NC}  查看状态"
-    echo -e "${C}|${NC}  ${Y} 2${NC}  查看实时日志"
-    echo -e "${C}|${NC}  ${Y} 3${NC}  重启服务"
-    echo -e "${C}|${NC}  ${Y} 4${NC}  停止服务"
-    echo -e "${C}|${NC}  ${Y} 5${NC}  重新配置"
-    echo -e "${C}|${NC}  ${Y} 6${NC}  测试告警"
-    echo -e "${C}|${NC}  ${Y} 7${NC}  更新程序"
-    echo -e "${C}|${NC}  ${R} 8${NC}  一键卸载"
-    echo -e "${C}|${NC}  ${Y} 0${NC}  退出"
-    echo -e "${C}|                                               |${NC}"
-    echo -e "${C}+===============================================+${NC}"
+    echo "${C}|${NC}  服务器: ${B}${name}${NC}"
+    echo "${C}+===============================================+${NC}"
+    echo "${C}|                                               |${NC}"
+    echo "${C}|${NC}  ${Y} 1${NC}  查看状态"
+    echo "${C}|${NC}  ${Y} 2${NC}  查看实时日志"
+    echo "${C}|${NC}  ${Y} 3${NC}  重启服务"
+    echo "${C}|${NC}  ${Y} 4${NC}  停止服务"
+    echo "${C}|${NC}  ${Y} 5${NC}  重新配置"
+    echo "${C}|${NC}  ${Y} 6${NC}  测试告警"
+    echo "${C}|${NC}  ${Y} 7${NC}  更新程序"
+    echo "${C}|${NC}  ${R} 8${NC}  一键卸载"
+    echo "${C}|${NC}  ${Y} 0${NC}  退出"
+    echo "${C}|                                               |${NC}"
+    echo "${C}+===============================================+${NC}"
     echo ""
 }
 
@@ -86,7 +86,7 @@ press_enter() {
 
 test_alert() {
     echo ""
-    echo -e "  ${C}[..] 正在发送测试消息...${NC}"
+    echo "  ${C}[..] 正在发送测试消息...${NC}"
     PYTHON="$INSTALL_DIR/venv/bin/python3"
     result=$($PYTHON -c "
 import sys, os
@@ -100,16 +100,16 @@ ok = send_alert(config, msg)
 print('ok' if ok else 'fail')
 " 2>/dev/null)
     if [ "$result" = "ok" ]; then
-        echo -e "  ${G}[OK] 测试消息已发送，请检查 TG 和钉钉${NC}"
+        echo "  ${G}[OK] 测试消息已发送，请检查 TG 和钉钉${NC}"
     else
-        echo -e "  ${R}[FAIL] 发送失败，请检查配置${NC}"
+        echo "  ${R}[FAIL] 发送失败，请检查配置${NC}"
     fi
     press_enter
 }
 
 update_program() {
     echo ""
-    echo -e "  ${C}[..] 正在检查更新...${NC}"
+    echo "  ${C}[..] 正在检查更新...${NC}"
 
     latest_hash=$(curl -s "https://api.github.com/repos/linjunhao024-byte/Dynamic-routing-monitoring/commits/main" 2>/dev/null | grep -o '"sha":"[^"]*"' | head -1 | cut -d'"' -f4)
     current_hash=""
@@ -118,14 +118,13 @@ update_program() {
     fi
 
     if [ -n "$latest_hash" ] && [ "$current_hash" = "$latest_hash" ]; then
-        echo -e "  ${G}[OK] 已是最新版本${NC}"
+        echo "  ${G}[OK] 已是最新版本${NC}"
         press_enter
         return
     fi
 
-    echo -e "  ${Y}[..] 发现新版本，正在更新...${NC}"
+    echo "  ${Y}[..] 发现新版本，正在更新...${NC}"
 
-    # 先备份配置和数据到临时目录
     TMP_BACKUP="/tmp/route-monitor-backup"
     rm -rf "$TMP_BACKUP"
     mkdir -p "$TMP_BACKUP"
@@ -133,29 +132,24 @@ update_program() {
     cp "$INSTALL_DIR/monitor.db" "$TMP_BACKUP/" 2>/dev/null
     [ -f "$INSTALL_DIR/.git_hash" ] && cp "$INSTALL_DIR/.git_hash" "$TMP_BACKUP/" 2>/dev/null
 
-    # 在 /tmp 目录操作，不依赖原目录
     cd /tmp
     rm -rf route-monitor.new main.zip
     wget -q https://github.com/linjunhao024-byte/Dynamic-routing-monitoring/archive/refs/heads/main.zip
     unzip -qo main.zip
     mv Dynamic-routing-monitoring-main route-monitor.new
 
-    # 恢复配置和数据
     cp "$TMP_BACKUP/config.local.json" route-monitor.new/ 2>/dev/null
     cp "$TMP_BACKUP/monitor.db" route-monitor.new/ 2>/dev/null
     echo "$latest_hash" > route-monitor.new/.git_hash
     rm -rf "$TMP_BACKUP"
 
-    # 替换安装目录
     rm -rf "$INSTALL_DIR"
     mv route-monitor.new "$INSTALL_DIR"
     rm -f main.zip
 
-    # 修复权限
     chmod +x "$INSTALL_DIR/monitor.sh"
     ln -sf "$INSTALL_DIR/monitor.sh" /usr/local/bin/monitor
 
-    # 重建 venv
     cd "$INSTALL_DIR"
     python3 -m venv venv
     source venv/bin/activate
@@ -164,25 +158,25 @@ update_program() {
 
     systemctl restart $SERVICE
     cd /root
-    echo -e "  ${G}[OK] 更新完成，服务已重启${NC}"
+    echo "  ${G}[OK] 更新完成，服务已重启${NC}"
     press_enter
 }
 
 uninstall() {
     echo ""
-    echo -e "  ${R}+===============================================+${NC}"
-    echo -e "  ${R}|  WARNING: 此操作将完全删除路由监测工具       |${NC}"
-    echo -e "  ${R}+===============================================+${NC}"
+    echo "  ${R}+===============================================+${NC}"
+    echo "  ${R}|  WARNING: 此操作将完全删除路由监测工具       |${NC}"
+    echo "  ${R}+===============================================+${NC}"
     echo ""
     read -p "  输入 yes 确认卸载: " confirm
     if [ "$confirm" != "yes" ]; then
-        echo -e "  ${Y}已取消${NC}"
+        echo "  ${Y}已取消${NC}"
         press_enter
         return
     fi
 
     echo ""
-    echo -e "  ${Y}[..] 正在卸载...${NC}"
+    echo "  ${Y}[..] 正在卸载...${NC}"
     systemctl stop $SERVICE 2>/dev/null
     systemctl disable $SERVICE 2>/dev/null
     rm -f /etc/systemd/system/$SERVICE.service
@@ -190,7 +184,7 @@ uninstall() {
     rm -f /usr/local/bin/monitor
     rm -rf $INSTALL_DIR
     echo ""
-    echo -e "  ${G}[OK] 卸载完成${NC}"
+    echo "  ${G}[OK] 卸载完成${NC}"
     echo ""
     exit 0
 }
@@ -206,20 +200,20 @@ while true; do
             ;;
         2)
             echo ""
-            echo -e "  ${C}按 Ctrl+C 退出日志${NC}"
+            echo "  ${C}按 Ctrl+C 退出日志${NC}"
             echo ""
             journalctl -u $SERVICE -f --no-pager
             ;;
         3)
             systemctl restart $SERVICE
             echo ""
-            echo -e "  ${G}[OK] 服务已重启${NC}"
+            echo "  ${G}[OK] 服务已重启${NC}"
             press_enter
             ;;
         4)
             systemctl stop $SERVICE
             echo ""
-            echo -e "  ${Y}[OK] 服务已停止${NC}"
+            echo "  ${Y}[OK] 服务已停止${NC}"
             press_enter
             ;;
         5)
@@ -237,13 +231,13 @@ while true; do
             ;;
         0)
             echo ""
-            echo -e "  ${G}Bye!${NC}"
+            echo "  ${G}Bye!${NC}"
             echo ""
             exit 0
             ;;
         *)
             echo ""
-            echo -e "  ${R}无效选择${NC}"
+            echo "  ${R}无效选择${NC}"
             sleep 1
             ;;
     esac
