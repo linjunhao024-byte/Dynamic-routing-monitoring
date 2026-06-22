@@ -8,13 +8,14 @@ SERVICE="route-monitor"
 INSTALL_DIR="/root/route-monitor"
 CONFIG_FILE="$INSTALL_DIR/config.local.json"
 
-R=$'\e[0;31m'
-G=$'\e[0;32m'
-Y=$'\e[1;33m'
-C=$'\e[0;36m'
-B=$'\e[1;37m'
-D=$'\e[2;37m'
-NC=$'\e[0m'
+ESC=$(printf '\033')
+R="${ESC}[0;31m"
+G="${ESC}[0;32m"
+Y="${ESC}[1;33m"
+C="${ESC}[0;36m"
+B="${ESC}[1;37m"
+D="${ESC}[2;37m"
+NC="${ESC}[0m"
 
 get_server_name() {
     if [ -f "$CONFIG_FILE" ]; then
@@ -44,6 +45,10 @@ get_uptime() {
     fi
 }
 
+c() {
+    printf '%b\n' "$*"
+}
+
 show_menu() {
     clear
     local name=$(get_server_name)
@@ -51,31 +56,31 @@ show_menu() {
     systemctl is-active --quiet $SERVICE 2>/dev/null && running=true
 
     echo ""
-    echo "${C}+===============================================+${NC}"
-    echo "${C}|          AWS Route Monitor  v1.0              |${NC}"
-    echo "${C}+===============================================+${NC}"
+    c "${C}+===============================================+${NC}"
+    c "${C}|          AWS Route Monitor  v1.0              |${NC}"
+    c "${C}+===============================================+${NC}"
 
     if $running; then
         local uptime=$(get_uptime)
-        echo "${C}|${NC}  ${G}[RUNNING]${NC} ${D}已运行 ${uptime}${NC}"
+        c "${C}|${NC}  ${G}[RUNNING]${NC} ${D}已运行 ${uptime}${NC}"
     else
-        echo "${C}|${NC}  ${R}[STOPPED]${NC}"
+        c "${C}|${NC}  ${R}[STOPPED]${NC}"
     fi
 
-    echo "${C}|${NC}  服务器: ${B}${name}${NC}"
-    echo "${C}+===============================================+${NC}"
-    echo "${C}|                                               |${NC}"
-    echo "${C}|${NC}  ${Y} 1${NC}  查看状态"
-    echo "${C}|${NC}  ${Y} 2${NC}  查看实时日志"
-    echo "${C}|${NC}  ${Y} 3${NC}  重启服务"
-    echo "${C}|${NC}  ${Y} 4${NC}  停止服务"
-    echo "${C}|${NC}  ${Y} 5${NC}  重新配置"
-    echo "${C}|${NC}  ${Y} 6${NC}  测试告警"
-    echo "${C}|${NC}  ${Y} 7${NC}  更新程序"
-    echo "${C}|${NC}  ${R} 8${NC}  一键卸载"
-    echo "${C}|${NC}  ${Y} 0${NC}  退出"
-    echo "${C}|                                               |${NC}"
-    echo "${C}+===============================================+${NC}"
+    c "${C}|${NC}  服务器: ${B}${name}${NC}"
+    c "${C}+===============================================+${NC}"
+    c "${C}|                                               |${NC}"
+    c "${C}|${NC}  ${Y} 1${NC}  查看状态"
+    c "${C}|${NC}  ${Y} 2${NC}  查看实时日志"
+    c "${C}|${NC}  ${Y} 3${NC}  重启服务"
+    c "${C}|${NC}  ${Y} 4${NC}  停止服务"
+    c "${C}|${NC}  ${Y} 5${NC}  重新配置"
+    c "${C}|${NC}  ${Y} 6${NC}  测试告警"
+    c "${C}|${NC}  ${Y} 7${NC}  更新程序"
+    c "${C}|${NC}  ${R} 8${NC}  一键卸载"
+    c "${C}|${NC}  ${Y} 0${NC}  退出"
+    c "${C}|                                               |${NC}"
+    c "${C}+===============================================+${NC}"
     echo ""
 }
 
@@ -86,7 +91,7 @@ press_enter() {
 
 test_alert() {
     echo ""
-    echo "  ${C}[..] 正在发送测试消息...${NC}"
+    c "  ${C}[..] 正在发送测试消息...${NC}"
     PYTHON="$INSTALL_DIR/venv/bin/python3"
     result=$($PYTHON -c "
 import sys, os
@@ -100,16 +105,16 @@ ok = send_alert(config, msg)
 print('ok' if ok else 'fail')
 " 2>/dev/null)
     if [ "$result" = "ok" ]; then
-        echo "  ${G}[OK] 测试消息已发送，请检查 TG 和钉钉${NC}"
+        c "  ${G}[OK] 测试消息已发送，请检查 TG 和钉钉${NC}"
     else
-        echo "  ${R}[FAIL] 发送失败，请检查配置${NC}"
+        c "  ${R}[FAIL] 发送失败，请检查配置${NC}"
     fi
     press_enter
 }
 
 update_program() {
     echo ""
-    echo "  ${C}[..] 正在检查更新...${NC}"
+    c "  ${C}[..] 正在检查更新...${NC}"
 
     latest_hash=$(curl -s "https://api.github.com/repos/linjunhao024-byte/Dynamic-routing-monitoring/commits/main" 2>/dev/null | grep -o '"sha":"[^"]*"' | head -1 | cut -d'"' -f4)
     current_hash=""
@@ -118,12 +123,12 @@ update_program() {
     fi
 
     if [ -n "$latest_hash" ] && [ "$current_hash" = "$latest_hash" ]; then
-        echo "  ${G}[OK] 已是最新版本${NC}"
+        c "  ${G}[OK] 已是最新版本${NC}"
         press_enter
         return
     fi
 
-    echo "  ${Y}[..] 发现新版本，正在更新...${NC}"
+    c "  ${Y}[..] 发现新版本，正在更新...${NC}"
 
     TMP_BACKUP="/tmp/route-monitor-backup"
     rm -rf "$TMP_BACKUP"
@@ -158,25 +163,25 @@ update_program() {
 
     systemctl restart $SERVICE
     cd /root
-    echo "  ${G}[OK] 更新完成，服务已重启${NC}"
+    c "  ${G}[OK] 更新完成，服务已重启${NC}"
     press_enter
 }
 
 uninstall() {
     echo ""
-    echo "  ${R}+===============================================+${NC}"
-    echo "  ${R}|  WARNING: 此操作将完全删除路由监测工具       |${NC}"
-    echo "  ${R}+===============================================+${NC}"
+    c "  ${R}+===============================================+${NC}"
+    c "  ${R}|  WARNING: 此操作将完全删除路由监测工具       |${NC}"
+    c "  ${R}+===============================================+${NC}"
     echo ""
     read -p "  输入 yes 确认卸载: " confirm
     if [ "$confirm" != "yes" ]; then
-        echo "  ${Y}已取消${NC}"
+        c "  ${Y}已取消${NC}"
         press_enter
         return
     fi
 
     echo ""
-    echo "  ${Y}[..] 正在卸载...${NC}"
+    c "  ${Y}[..] 正在卸载...${NC}"
     systemctl stop $SERVICE 2>/dev/null
     systemctl disable $SERVICE 2>/dev/null
     rm -f /etc/systemd/system/$SERVICE.service
@@ -184,7 +189,7 @@ uninstall() {
     rm -f /usr/local/bin/monitor
     rm -rf $INSTALL_DIR
     echo ""
-    echo "  ${G}[OK] 卸载完成${NC}"
+    c "  ${G}[OK] 卸载完成${NC}"
     echo ""
     exit 0
 }
@@ -200,20 +205,20 @@ while true; do
             ;;
         2)
             echo ""
-            echo "  ${C}按 Ctrl+C 退出日志${NC}"
+            c "  ${C}按 Ctrl+C 停止查看日志，返回菜单${NC}"
             echo ""
             journalctl -u $SERVICE -f --no-pager
             ;;
         3)
             systemctl restart $SERVICE
             echo ""
-            echo "  ${G}[OK] 服务已重启${NC}"
+            c "  ${G}[OK] 服务已重启${NC}"
             press_enter
             ;;
         4)
             systemctl stop $SERVICE
             echo ""
-            echo "  ${Y}[OK] 服务已停止${NC}"
+            c "  ${Y}[OK] 服务已停止${NC}"
             press_enter
             ;;
         5)
@@ -231,13 +236,13 @@ while true; do
             ;;
         0)
             echo ""
-            echo "  ${G}Bye!${NC}"
+            c "  ${G}Bye!${NC}"
             echo ""
             exit 0
             ;;
         *)
             echo ""
-            echo "  ${R}无效选择${NC}"
+            c "  ${R}无效选择${NC}"
             sleep 1
             ;;
     esac
