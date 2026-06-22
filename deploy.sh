@@ -12,14 +12,19 @@ echo "=== AWS 路由监测工具 部署 ==="
 echo "[1/4] 安装系统依赖..."
 if command -v apt-get &> /dev/null; then
     sudo apt-get update -qq
-    sudo apt-get install -y -qq python3 python3-pip traceroute > /dev/null 2>&1
+    sudo apt-get install -y -qq python3 python3-pip python3-venv traceroute > /dev/null 2>&1
 elif command -v yum &> /dev/null; then
     sudo yum install -y python3 python3-pip traceroute > /dev/null 2>&1
 fi
 
-# 安装 Python 依赖
+# 创建虚拟环境并安装依赖
 echo "[2/4] 安装 Python 依赖..."
-pip3 install -r requirements.txt --quiet 2>/dev/null || pip install -r requirements.txt --quiet
+if [ ! -d "$INSTALL_DIR/venv" ]; then
+    python3 -m venv "$INSTALL_DIR/venv"
+fi
+source "$INSTALL_DIR/venv/bin/activate"
+pip install -r "$INSTALL_DIR/requirements.txt" --quiet
+deactivate
 
 # 配置
 echo "[3/4] 检查配置..."
@@ -40,7 +45,7 @@ fi
 
 # 创建 systemd 服务
 echo "[4/4] 配置系统服务..."
-PYTHON_PATH=$(which python3 || which python)
+PYTHON_PATH="$INSTALL_DIR/venv/bin/python3"
 sudo tee /etc/systemd/system/route-monitor.service > /dev/null <<EOF
 [Unit]
 Description=AWS Route Monitor
