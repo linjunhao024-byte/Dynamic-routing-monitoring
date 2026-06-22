@@ -74,7 +74,7 @@ show_menu() {
     c "${C}|${NC}  ${Y} 2${NC}  查看实时日志"
     c "${C}|${NC}  ${Y} 3${NC}  重启服务"
     c "${C}|${NC}  ${Y} 4${NC}  停止服务"
-    c "${C}|${NC}  ${Y} 5${NC}  重新配置"
+    c "${C}|${NC}  ${Y} 5${NC}  编辑配置"
     c "${C}|${NC}  ${Y} 6${NC}  测试告警"
     c "${C}|${NC}  ${Y} 7${NC}  更新程序"
     c "${C}|${NC}  ${R} 8${NC}  一键卸载"
@@ -167,6 +167,152 @@ update_program() {
     press_enter
 }
 
+get_config_value() {
+    local key="$1"
+    python3 -c "
+import json
+try:
+    with open('$CONFIG_FILE') as f:
+        cfg = json.load(f)
+    keys = '$key'.split('.')
+    val = cfg
+    for k in keys:
+        val = val[k]
+    print(val)
+except:
+    print('')
+" 2>/dev/null
+}
+
+set_config_value() {
+    local key="$1"
+    local value="$2"
+    python3 -c "
+import json
+with open('$CONFIG_FILE') as f:
+    cfg = json.load(f)
+keys = '$key'.split('.')
+d = cfg
+for k in keys[:-1]:
+    d = d[k]
+d[keys[-1]] = '$value'
+with open('$CONFIG_FILE', 'w') as f:
+    json.dump(cfg, f, indent=2, ensure_ascii=False)
+" 2>/dev/null
+}
+
+edit_config() {
+    while true; do
+        clear
+        local name=$(get_config_value "server_name")
+        local tg_enabled=$(get_config_value "telegram.enabled")
+        local tg_token=$(get_config_value "telegram.bot_token")
+        local tg_chatid=$(get_config_value "telegram.chat_id")
+        local dt_enabled=$(get_config_value "dingtalk.enabled")
+        local dt_webhook=$(get_config_value "dingtalk.webhook_url")
+        local ping_interval=$(get_config_value "monitoring.ping_interval_sec")
+        local tr_interval=$(get_config_value "monitoring.traceroute_interval_sec")
+        local latency_ms=$(get_config_value "alert.latency_abs_threshold_ms")
+        local loss_pct=$(get_config_value "alert.packet_loss_threshold_pct")
+        local cooldown=$(get_config_value "alert.cooldown_sec")
+
+        echo ""
+        c "${C}+===============================================+${NC}"
+        c "${C}|               编辑配置                        |${NC}"
+        c "${C}+===============================================+${NC}"
+        c "${C}|                                               |${NC}"
+        c "${C}|${NC}  ${B}基本设置${NC}"
+        c "${C}|${NC}  ${Y} 1${NC}  服务器名称:    ${B}${name}${NC}"
+        c "${C}|${NC}"
+        c "${C}|${NC}  ${B}Telegram${NC}"
+        c "${C}|${NC}  ${Y} 2${NC}  启用状态:      ${B}${tg_enabled}${NC}"
+        c "${C}|${NC}  ${Y} 3${NC}  Bot Token:     ${B}${tg_token:0:15}...${NC}"
+        c "${C}|${NC}  ${Y} 4${NC}  Chat ID:       ${B}${tg_chatid}${NC}"
+        c "${C}|${NC}"
+        c "${C}|${NC}  ${B}钉钉${NC}"
+        c "${C}|${NC}  ${Y} 5${NC}  启用状态:      ${B}${dt_enabled}${NC}"
+        c "${C}|${NC}  ${Y} 6${NC}  Webhook:       ${B}${dt_webhook:0:30}...${NC}"
+        c "${C}|${NC}"
+        c "${C}|${NC}  ${B}监测参数${NC}"
+        c "${C}|${NC}  ${Y} 7${NC}  Ping间隔(秒):  ${B}${ping_interval}${NC}"
+        c "${C}|${NC}  ${Y} 8${NC}  Traceroute间隔:${B}${tr_interval}${NC}"
+        c "${C}|${NC}  ${Y} 9${NC}  延迟阈值(ms):  ${B}${latency_ms}${NC}"
+        c "${C}|${NC}  ${Y}10${NC}  丢包阈值(%):   ${B}${loss_pct}${NC}"
+        c "${C}|${NC}  ${Y}11${NC}  告警冷却(秒):  ${B}${cooldown}${NC}"
+        c "${C}|${NC}"
+        c "${C}|${NC}  ${G} s${NC}  保存并返回"
+        c "${C}|${NC}  ${R} q${NC}  不保存返回"
+        c "${C}|                                               |${NC}"
+        c "${C}+===============================================+${NC}"
+        echo ""
+        read -p "  选择要编辑的项目: " edit_choice
+
+        case $edit_choice in
+            1)
+                read -p "  服务器名称: " val
+                [ -n "$val" ] && set_config_value "server_name" "$val"
+                ;;
+            2)
+                read -p "  启用Telegram? (true/false): " val
+                [ "$val" = "true" ] || [ "$val" = "false" ] && set_config_value "telegram.enabled" "$val"
+                ;;
+            3)
+                read -p "  Bot Token: " val
+                [ -n "$val" ] && set_config_value "telegram.bot_token" "$val"
+                ;;
+            4)
+                read -p "  Chat ID: " val
+                [ -n "$val" ] && set_config_value "telegram.chat_id" "$val"
+                ;;
+            5)
+                read -p "  启用钉钉? (true/false): " val
+                [ "$val" = "true" ] || [ "$val" = "false" ] && set_config_value "dingtalk.enabled" "$val"
+                ;;
+            6)
+                read -p "  Webhook URL: " val
+                [ -n "$val" ] && set_config_value "dingtalk.webhook_url" "$val"
+                ;;
+            7)
+                read -p "  Ping间隔(秒): " val
+                [[ "$val" =~ ^[0-9]+$ ]] && set_config_value "monitoring.ping_interval_sec" "$val"
+                ;;
+            8)
+                read -p "  Traceroute间隔(秒): " val
+                [[ "$val" =~ ^[0-9]+$ ]] && set_config_value "monitoring.traceroute_interval_sec" "$val"
+                ;;
+            9)
+                read -p "  延迟阈值(ms): " val
+                [[ "$val" =~ ^[0-9]+$ ]] && set_config_value "alert.latency_abs_threshold_ms" "$val"
+                ;;
+            10)
+                read -p "  丢包阈值(%): " val
+                [[ "$val" =~ ^[0-9]+$ ]] && set_config_value "alert.packet_loss_threshold_pct" "$val"
+                ;;
+            11)
+                read -p "  告警冷却(秒): " val
+                [[ "$val" =~ ^[0-9]+$ ]] && set_config_value "alert.cooldown_sec" "$val"
+                ;;
+            s|S)
+                systemctl restart $SERVICE
+                echo ""
+                c "  ${G}[OK] 配置已保存，服务已重启${NC}"
+                press_enter
+                return
+                ;;
+            q|Q)
+                echo ""
+                c "  ${Y}已放弃修改${NC}"
+                press_enter
+                return
+                ;;
+            *)
+                c "  ${R}无效选择${NC}"
+                sleep 1
+                ;;
+        esac
+    done
+}
+
 uninstall() {
     echo ""
     c "  ${R}+===============================================+${NC}"
@@ -222,8 +368,7 @@ while true; do
             press_enter
             ;;
         5)
-            cd $INSTALL_DIR && bash deploy.sh
-            press_enter
+            edit_config
             ;;
         6)
             test_alert
