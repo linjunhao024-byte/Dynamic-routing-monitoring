@@ -252,6 +252,13 @@ def main():
                 logger.info("Warmup complete, computing initial baselines...")
                 update_baselines(db, config)
                 last_bl = now
+                if should_alert():
+                    stats = db.get_stats_summary(hours=1)
+                    if stats:
+                        from alerter import build_daily_report
+                        report = "✅ 路由监测已启动\n\n" + build_daily_report(config, stats)
+                        send_alert(config, report)
+                        logger.info("Startup report sent")
             if now - last_report >= report_interval:
                 stats = db.get_stats_summary(hours=24)
                 if stats:

@@ -91,6 +91,7 @@ class TelegramBot:
             "chart_1h": lambda: threading.Thread(target=self._action_chart_hours, args=(1,), daemon=True).start(),
             "chart_6h": lambda: threading.Thread(target=self._action_chart_hours, args=(6,), daemon=True).start(),
             "chart_24h": lambda: threading.Thread(target=self._action_chart_hours, args=(24,), daemon=True).start(),
+            "test_alert": self._action_test_alert,
         }
         action = actions.get(data)
         if action:
@@ -141,7 +142,8 @@ class TelegramBot:
              {"text": "📋 历史记录", "callback_data": "history"}],
             [{"text": "📉 趋势图", "callback_data": "chart"},
              {"text": "🗺 路由地图", "callback_data": "geoip"}],
-            [{"text": "📝 每日报告", "callback_data": "report"}],
+            [{"text": "📝 每日报告", "callback_data": "report"},
+             {"text": "🔔 测试告警", "callback_data": "test_alert"}],
             mute_btn,
         ]
 
@@ -289,3 +291,11 @@ class TelegramBot:
             self.muted = False
             return False
         return True
+
+    def _action_test_alert(self):
+        from alerter import send_alert
+        msg = f"🔔 路由监测测试消息\n\n服务器: {self.config['server_name']}\n状态: 告警通道正常\n\n如果你看到这条消息，说明一切正常！"
+        if send_alert(self.config, msg):
+            self._send_text("✅ 测试消息已发送，请检查 TG 和钉钉是否收到")
+        else:
+            self._send_text("❌ 发送失败，请检查配置")

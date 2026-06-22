@@ -187,8 +187,16 @@ systemctl daemon-reload
 systemctl enable route-monitor > /dev/null 2>&1
 echo -e "${GREEN}  ✓ 系统服务配置完成${NC}"
 
-# ========== 第五步：启动服务 ==========
-echo -e "${YELLOW}[5/5] 启动服务...${NC}"
+# ========== 第五步：安装管理命令 ==========
+echo -e "${YELLOW}[5/6] 安装管理命令...${NC}"
+if [ -f "$INSTALL_DIR/monitor.sh" ]; then
+    chmod +x "$INSTALL_DIR/monitor.sh"
+    ln -sf "$INSTALL_DIR/monitor.sh" /usr/local/bin/monitor
+    echo -e "${GREEN}  ✓ 管理命令已安装，输入 ${CYAN}monitor${GREEN} 打开管理面板${NC}"
+fi
+
+# ========== 第六步：启动服务并测试 ==========
+echo -e "${YELLOW}[6/6] 启动服务...${NC}"
 systemctl restart route-monitor
 sleep 2
 
@@ -198,16 +206,30 @@ else
     echo -e "${RED}  ✗ 服务启动失败，查看日志: journalctl -u route-monitor -n 20${NC}"
 fi
 
+# 发送测试消息
+echo ""
+echo -e "${CYAN}正在发送测试消息...${NC}"
+PYTHON="$INSTALL_DIR/venv/bin/python3"
+$PYTHON -c "
+import sys, os
+sys.path.insert(0, '$INSTALL_DIR/src')
+os.chdir('$INSTALL_DIR')
+from config import load_config
+from alerter import send_alert
+config = load_config()
+msg = '🔔 路由监测测试消息\n\n服务器: ' + config['server_name'] + '\n状态: 告警通道配置正常\n\n如果你看到这条消息，说明部署成功！'
+ok = send_alert(config, msg)
+if ok:
+    print('  ✓ 测试消息发送成功')
+else:
+    print('  ✗ 测试消息发送失败，请检查配置')
+" 2>/dev/null
+
 # ========== 完成 ==========
 echo ""
 echo -e "${CYAN}╔══════════════════════════════════════════╗${NC}"
 echo -e "${CYAN}║           部署完成！                      ║${NC}"
 echo -e "${CYAN}╚══════════════════════════════════════════╝${NC}"
 echo ""
-echo -e "常用命令:"
-echo -e "  查看状态: ${GREEN}systemctl status route-monitor${NC}"
-echo -e "  查看日志: ${GREEN}journalctl -u route-monitor -f${NC}"
-echo -e "  重启:     ${GREEN}systemctl restart route-monitor${NC}"
-echo -e "  停止:     ${GREEN}systemctl stop route-monitor${NC}"
-echo -e "  重新配置: ${GREEN}bash $INSTALL_DIR/deploy.sh${NC}"
+echo -e "输入 ${CYAN}monitor${NC} 打开管理面板"
 echo ""
