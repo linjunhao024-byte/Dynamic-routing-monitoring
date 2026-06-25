@@ -357,6 +357,20 @@ install_command() {
         printf "${CYAN}|${NC}  ${GREEN}[✓]${NC} 管理命令: ${CMD_NAME}                                             ${CYAN}|${NC}\n"
     fi
 
+    echo -e "${CYAN}|${NC}                                                              ${CYAN}|${NC}"
+    echo -ne "${CYAN}|${NC}  SSH 登录后自动进入管理菜单？(y/N) [默认: N]: "
+    read auto_menu
+    if [ "$auto_menu" = "y" ] || [ "$auto_menu" = "Y" ]; then
+        local bashrc="$HOME/.bashrc"
+        local marker="# route-monitor-auto-menu"
+        if ! grep -q "$marker" "$bashrc" 2>/dev/null; then
+            echo "" >> "$bashrc"
+            echo "$marker" >> "$bashrc"
+            echo "${CMD_NAME}" >> "$bashrc"
+        fi
+        printf "${CYAN}|${NC}  ${GREEN}[✓]${NC} 已启用登录自动进入菜单                                      ${CYAN}|${NC}\n"
+    fi
+
     echo -e "${CYAN}+===========================================================================+${NC}"
 }
 

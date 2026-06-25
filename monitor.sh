@@ -117,7 +117,7 @@ show_menu() {
     echo -e "${CYAN}|${NC}  ${CYAN}[1]${NC} 查看状态         ${CYAN}[5]${NC} 编辑配置         ${CYAN}[9]${NC} 测试告警         ${CYAN}|${NC}"
     echo -e "${CYAN}|${NC}  ${CYAN}[2]${NC} 实时日志         ${CYAN}[6]${NC} 更新程序         ${CYAN}[10]${NC} 查看基线          ${CYAN}|${NC}"
     echo -e "${CYAN}|${NC}  ${CYAN}[3]${NC} 重启服务         ${CYAN}[7]${NC} 一键卸载         ${CYAN}[11]${NC} Web 面板          ${CYAN}|${NC}"
-    echo -e "${CYAN}|${NC}  ${CYAN}[4]${NC} 停止服务         ${CYAN}[8]${NC} 查看日志                                  ${CYAN}|${NC}"
+    echo -e "${CYAN}|${NC}  ${CYAN}[4]${NC} 停止服务         ${CYAN}[8]${NC} 查看日志         ${CYAN}[12]${NC} 登录自动进入菜单  ${CYAN}|${NC}"
     echo -e "${CYAN}+---------------------------------------------------------------------------+${NC}"
     echo -e "${CYAN}|${NC}  ${BOLD}快速操作${NC}                                                               ${CYAN}|${NC}"
     echo -e "${CYAN}+---------------------------------------------------------------------------+${NC}"
@@ -126,7 +126,7 @@ show_menu() {
     echo -e "${CYAN}|${NC}  ${CYAN}[0]${NC} 退出                                                                     ${CYAN}|${NC}"
     echo -e "${CYAN}+===========================================================================+${NC}"
     echo ""
-    echo -ne "  请选择 [0-11/s/r/d]: "
+    echo -ne "  请选择 [0-12/s/r/d]: "
 }
 
 # ============================================================================
@@ -330,62 +330,130 @@ do_update() {
     printf "${CYAN}|${NC}  ${BOLD}%-69s${NC}${CYAN}|${NC}\n" "更新程序"
     echo -e "${CYAN}+---------------------------------------------------------------------------+${NC}"
 
-    printf "${CYAN}|${NC}  %-69s${CYAN}|${NC}\n" "正在检查更新..."
+    # ── 1. 检查最新版本 ──
+    printf "${CYAN}|${NC}  %-69s${NC}${CYAN}|${NC}\n" "正在检查更新..."
+    local api_resp
+    api_resp=$(curl -s --max-time 10 "https://api.github.com/repos/linjunhao024-byte/Dynamic-routing-monitoring/commits/main" 2>/dev/null)
+    local latest_hash
+    latest_hash=$(echo "$api_resp" | grep -o '"sha":"[^"]*"' | head -1 | cut -d'"' -f4)
 
-    latest_hash=$(curl -s "https://api.github.com/repos/linjunhao024-byte/Dynamic-routing-monitoring/commits/main" 2>/dev/null | grep -o '"sha":"[^"]*"' | head -1 | cut -d'"' -f4)
-    current_hash=""
+    if [ -z "$latest_hash" ]; then
+        printf "${CYAN}|${NC}  ${RED}[✗]${NC} 无法获取版本信息（GitHub API 限流或网络问题）              ${CYAN}|${NC}\n"
+        printf "${CYAN}|${NC}  ${YELLOW}[!]${NC} 提示: 等几分钟后重试，或手动下载更新                       ${CYAN}|${NC}\n"
+        echo -e "${CYAN}+===========================================================================+${NC}"
+        wait_key
+        return
+    fi
+
+    local current_hash=""
     if [ -f "$INSTALL_DIR/.git_hash" ]; then
         current_hash=$(cat "$INSTALL_DIR/.git_hash")
     fi
 
-    if [ -n "$latest_hash" ] && [ "$current_hash" = "$latest_hash" ]; then
-        printf "${CYAN}|${NC}  ${GREEN}[✓]${NC} 已是最新版本                                              ${CYAN}|${NC}\n"
+    if [ "$current_hash" = "$latest_hash" ]; then
+        printf "${CYAN}|${NC}  ${GREEN}[✓]${NC} 已是最新版本 (${latest_hash:0:8})                              ${CYAN}|${NC}\n"
         echo -e "${CYAN}+===========================================================================+${NC}"
         wait_key
         return
     fi
 
     printf "${CYAN}|${NC}  ${YELLOW}[!]${NC} 发现新版本，正在更新...                                    ${CYAN}|${NC}\n"
+    printf "${CYAN}|${NC}  当前: ${DIM}${current_hash:0:8}${NC}  →  最新: ${GREEN}${latest_hash:0:8}${NC}                          ${CYAN}|${NC}\n"
 
-    # 备份配置
-    TMP_BACKUP="/tmp/route-monitor-backup"
+    # ── 2. 备份 ──
+    local TMP_BACKUP="/tmp/route-monitor-backup-$$"
     rm -rf "$TMP_BACKUP"
     mkdir -p "$TMP_BACKUP"
     cp "$CONFIG_FILE" "$TMP_BACKUP/" 2>/dev/null
     cp "$INSTALL_DIR/monitor.db" "$TMP_BACKUP/" 2>/dev/null
+    cp "$INSTALL_DIR/requirements.txt" "$TMP_BACKUP/" 2>/dev/null
+    printf "${CYAN}|${NC}  ${GREEN}[✓]${NC} 配置和数据已备份                                          ${CYAN}|${NC}\n"
 
-    # 下载更新
-    cd /tmp
-    rm -rf route-monitor.new main.zip
-    wget -q https://github.com/linjunhao024-byte/Dynamic-routing-monitoring/archive/refs/heads/main.zip
-    unzip -qo main.zip
+    # ── 3. 下载到临时目录（不影响原安装）──
+    local TMP_WORK="/tmp/route-monitor-update-$$"
+    rm -rf "$TMP_WORK"
+    mkdir -p "$TMP_WORK"
+    cd "$TMP_WORK"
+
+    printf "${CYAN}|${NC}  %-69s${CYAN}|${NC}\n" "正在下载..."
+    if ! wget -q --timeout=30 -O main.zip \
+        "https://github.com/linjunhao024-byte/Dynamic-routing-monitoring/archive/refs/heads/main.zip"; then
+        printf "${CYAN}|${NC}  ${RED}[✗]${NC} 下载失败，原版本未受影响                                  ${CYAN}|${NC}\n"
+        rm -rf "$TMP_WORK" "$TMP_BACKUP"
+        echo -e "${CYAN}+===========================================================================+${NC}"
+        wait_key
+        return
+    fi
+
+    printf "${CYAN}|${NC}  %-69s${CYAN}|${NC}\n" "正在解压..."
+    if ! unzip -qo main.zip; then
+        printf "${CYAN}|${NC}  ${RED}[✗]${NC} 解压失败，原版本未受影响                                  ${CYAN}|${NC}\n"
+        rm -rf "$TMP_WORK" "$TMP_BACKUP"
+        echo -e "${CYAN}+===========================================================================+${NC}"
+        wait_key
+        return
+    fi
+
+    if [ ! -d "Dynamic-routing-monitoring-main" ]; then
+        printf "${CYAN}|${NC}  ${RED}[✗]${NC} 解压目录异常，原版本未受影响                              ${CYAN}|${NC}\n"
+        rm -rf "$TMP_WORK" "$TMP_BACKUP"
+        echo -e "${CYAN}+===========================================================================+${NC}"
+        wait_key
+        return
+    fi
+
     mv Dynamic-routing-monitoring-main route-monitor.new
 
-    # 恢复配置
+    # ── 4. 恢复配置和数据 ──
     cp "$TMP_BACKUP/config.local.json" route-monitor.new/ 2>/dev/null
     cp "$TMP_BACKUP/monitor.db" route-monitor.new/ 2>/dev/null
     echo "$latest_hash" > route-monitor.new/.git_hash
-    rm -rf "$TMP_BACKUP"
 
-    # 替换文件
+    # ── 5. 替换安装目录 ──
+    printf "${CYAN}|${NC}  %-69s${CYAN}|${NC}\n" "正在替换文件..."
     rm -rf "$INSTALL_DIR"
-    mv route-monitor.new "$INSTALL_DIR"
-    rm -f main.zip
+    mv "$TMP_WORK/route-monitor.new" "$INSTALL_DIR"
+    rm -rf "$TMP_WORK"
 
-    # 重新安装
+    # ── 6. 重新安装依赖（仅在变化时）──
     chmod +x "$INSTALL_DIR/monitor.sh"
     local cmd_name=$(basename "$0")
     ln -sf "$INSTALL_DIR/monitor.sh" "/usr/local/bin/$cmd_name"
 
-    cd "$INSTALL_DIR"
-    python3 -m venv venv
-    source venv/bin/activate
-    pip install -r requirements.txt --quiet 2>/dev/null
-    deactivate
+    local need_pip=true
+    if [ -f "$TMP_BACKUP/requirements.txt" ] && [ -f "$INSTALL_DIR/requirements.txt" ]; then
+        if diff -q "$TMP_BACKUP/requirements.txt" "$INSTALL_DIR/requirements.txt" > /dev/null 2>&1; then
+            need_pip=false
+            printf "${CYAN}|${NC}  ${GREEN}[✓]${NC} 依赖未变化，跳过 pip install                               ${CYAN}|${NC}\n"
+        fi
+    fi
+    rm -rf "$TMP_BACKUP"
 
+    if $need_pip; then
+        printf "${CYAN}|${NC}  %-69s${CYAN}|${NC}\n" "正在安装依赖..."
+        cd "$INSTALL_DIR"
+        python3 -m venv venv
+        source venv/bin/activate
+        if ! pip install -r requirements.txt --quiet 2>&1; then
+            printf "${CYAN}|${NC}  ${YELLOW}[!]${NC} 依赖安装可能不完整，服务可能无法启动                      ${CYAN}|${NC}\n"
+        fi
+        deactivate
+    fi
+
+    # ── 7. 完成，等待用户确认重启 ──
+    echo -e "${CYAN}+---------------------------------------------------------------------------+${NC}"
+    printf "${CYAN}|${NC}  ${GREEN}[✓]${NC} 更新完成！                                                ${CYAN}|${NC}\n"
+    echo -e "${CYAN}+---------------------------------------------------------------------------+${NC}"
+    echo ""
+    echo -ne "  按回车重启服务..."
+    read _
     systemctl restart $SERVICE
-
-    printf "${CYAN}|${NC}  ${GREEN}[✓]${NC} 更新完成，服务已重启                                        ${CYAN}|${NC}\n"
+    sleep 1
+    if systemctl is-active --quiet $SERVICE; then
+        printf "  ${GREEN}[✓]${NC} 服务已重启\n"
+    else
+        printf "  ${RED}[✗]${NC} 服务启动失败，请检查日志: journalctl -u $SERVICE -n 20\n"
+    fi
     echo -e "${CYAN}+===========================================================================+${NC}"
     wait_key
 }
@@ -435,7 +503,7 @@ print('ok' if ok else 'fail')
 " 2>/dev/null)
 
     if [ "$result" = "ok" ]; then
-        echo -e "  ${GREEN}[✓]${NC} 测试消息已发送，请检查 TG 和钉钉"
+        echo -e "  ${GREEN}[✓]${NC} 测试消息已发送，请检查钉钉是否收到"
     else
         echo -e "  ${RED}[✗]${NC} 发送失败，请检查配置"
     fi
@@ -549,6 +617,42 @@ else:
     wait_key
 }
 
+do_auto_menu() {
+    echo ""
+    echo -e "${CYAN}+===========================================================================+${NC}"
+    printf "${CYAN}|${NC}  ${BOLD}%-69s${NC}${CYAN}|${NC}\n" "登录自动进入菜单"
+    echo -e "${CYAN}+---------------------------------------------------------------------------+${NC}"
+
+    local bashrc="$HOME/.bashrc"
+    local marker="# route-monitor-auto-menu"
+
+    if grep -q "$marker" "$bashrc" 2>/dev/null; then
+        printf "${CYAN}|${NC}  ${GREEN}[✓]${NC} 已启用（SSH 登录后自动进入管理菜单）                      ${CYAN}|${NC}\n"
+        echo -e "${CYAN}|${NC}                                                              ${CYAN}|${NC}\n"
+        echo -ne "  是否取消自动进入？(y/N): "
+        read disable
+        if [ "$disable" = "y" ] || [ "$disable" = "Y" ]; then
+            # 删除 marker 及下一行
+            sed -i "/$marker/,+1d" "$bashrc"
+            printf "${CYAN}|${NC}  ${YELLOW}[✓]${NC} 已取消自动进入菜单                                        ${CYAN}|${NC}\n"
+        fi
+    else
+        printf "${CYAN}|${NC}  ${DIM}%-69s${NC}${CYAN}|${NC}\n" "当前未启用"
+        echo -e "${CYAN}|${NC}                                                              ${CYAN}|${NC}\n"
+        echo -ne "  是否启用 SSH 登录后自动进入菜单？(y/N): "
+        read enable
+        if [ "$enable" = "y" ] || [ "$enable" = "Y" ]; then
+            echo "" >> "$bashrc"
+            echo "$marker" >> "$bashrc"
+            echo "monitor" >> "$bashrc"
+            printf "${CYAN}|${NC}  ${GREEN}[✓]${NC} 已启用，下次 SSH 登录将自动进入菜单                        ${CYAN}|${NC}\n"
+        fi
+    fi
+
+    echo -e "${CYAN}+===========================================================================+${NC}"
+    wait_key
+}
+
 # ============================================================================
 # 主循环
 # ============================================================================
@@ -583,6 +687,7 @@ main() {
                 echo -e "  ${YELLOW}提示: 确保防火墙已开放 ${web_port} 端口${NC}"
                 wait_key
                 ;;
+            12) do_auto_menu ;;
             s|S) do_speed ;;
             r|R) do_traceroute ;;
             d|D) do_daily_report ;;
