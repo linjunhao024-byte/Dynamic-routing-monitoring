@@ -77,9 +77,15 @@ class Database:
                 alert_type TEXT,
                 severity TEXT,
                 message TEXT,
+                target_host TEXT DEFAULT '',
                 resolved INTEGER DEFAULT 0
             )
         """)
+        # 兼容旧数据库：如果 target_host 列不存在则添加
+        try:
+            c.execute("SELECT target_host FROM alerts LIMIT 1")
+        except sqlite3.OperationalError:
+            c.execute("ALTER TABLE alerts ADD COLUMN target_host TEXT DEFAULT ''")
         c.execute("CREATE INDEX IF NOT EXISTS idx_ping_ts ON ping_results(timestamp)")
         c.execute("CREATE INDEX IF NOT EXISTS idx_ping_host ON ping_results(target_host, timestamp)")
         c.execute("CREATE INDEX IF NOT EXISTS idx_alert_type ON alerts(alert_type, timestamp)")
@@ -140,11 +146,19 @@ class Database:
         )
         conn.commit()
 
-    def save_alert(self, alert_type, severity, message):
+    def save_alert(self, alert_type, severity, message, target_host=""):
         conn = self._get_conn()
         conn.execute(
-            "INSERT INTO alerts (timestamp, alert_type, severity, message) VALUES (?,?,?,?)",
-            (time.time(), alert_type, severity, message)
+            "INSERT INTO alerts (timestamp, alert_type, severity, message, target_host) VALUES (?,?,?,?,?)",
+            (time.time(), alert_type, severity, message, target_host)
+        )
+        conn.commit()
+
+    def update_baseline_hops(self, target_host, hop_count, hops_json):
+        conn = self._get_conn()
+        conn.execute(
+            "UPDATE baselines SET hop_count=?, hops_json=?, updated_at=? WHERE target_host=?",
+            (hop_count, hops_json, time.time(), target_host)
         )
         conn.commit()
 
@@ -152,8 +166,8 @@ class Database:
         conn = self._get_conn()
         if target_host:
             row = conn.execute(
-                "SELECT timestamp FROM alerts WHERE alert_type=? AND message LIKE ? ORDER BY id DESC LIMIT 1",
-                (alert_type, f"%{target_host}%")
+                "SELECT timestamp FROM alerts WHERE alert_type=? AND target_host=? ORDER BY id DESC LIMIT 1",
+                (alert_type, target_host)
             ).fetchone()
         else:
             row = conn.execute(

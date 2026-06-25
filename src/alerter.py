@@ -8,22 +8,11 @@ import logging
 
 logger = logging.getLogger("alerter")
 
-def _escape_md(text):
-    text = str(text)
-    for ch in ['_', '*', '[', ']', '(', ')', '~', '`', '>', '#', '+', '-', '=', '|', '{', '}', '.', '!']:
-        text = text.replace(ch, f'\\{ch}')
-    return text
-
 def send_telegram(bot_token, chat_id, message):
     url = f"https://api.telegram.org/bot{bot_token}/sendMessage"
-    payload = {"chat_id": chat_id, "text": message, "parse_mode": "MarkdownV2"}
+    payload = {"chat_id": chat_id, "text": message}
     try:
         r = requests.post(url, json=payload, timeout=10)
-        if r.status_code != 200:
-            logger.warning(f"Telegram API returned {r.status_code}: {r.text[:200]}")
-            payload["parse_mode"] = ""
-            payload["text"] = message.replace("*", "").replace("`", "").replace("_", "")
-            r = requests.post(url, json=payload, timeout=10)
         return r.status_code == 200
     except Exception as e:
         logger.error(f"Telegram send failed: {e}")

@@ -41,16 +41,27 @@ except:
 set_config_value() {
     local key="$1"
     local value="$2"
-    python3 -c "
-import json
-with open('$CONFIG_FILE') as f:
+    CONFIG_KEY="$key" CONFIG_VALUE="$value" CONFIG_PATH="$CONFIG_FILE" python3 -c "
+import json, os
+config_path = os.environ['CONFIG_PATH']
+key = os.environ['CONFIG_KEY']
+value = os.environ['CONFIG_VALUE']
+with open(config_path) as f:
     cfg = json.load(f)
-keys = '$key'.split('.')
+keys = key.split('.')
 d = cfg
 for k in keys[:-1]:
     d = d[k]
-d[keys[-1]] = '$value'
-with open('$CONFIG_FILE', 'w') as f:
+# 尝试解析为数字
+try:
+    value = int(value)
+except ValueError:
+    try:
+        value = float(value)
+    except ValueError:
+        pass
+d[keys[-1]] = value
+with open(config_path, 'w') as f:
     json.dump(cfg, f, indent=2, ensure_ascii=False)
 " 2>/dev/null
 }
@@ -205,21 +216,20 @@ do_log() {
     echo ""
 
     journalctl -u $SERVICE -f --no-pager -o cat | while IFS= read -r line; do
-        local time=$(date '+%H:%M:%S')
+        local ts=$(date '+%H:%M:%S')
         local color="${NC}"
-        if echo "$line" | grep -q "ERROR"; then
-            color="${RED}"
-        elif echo "$line" | grep -q "WARNING"; then
-            color="${YELLOW}"
-        elif echo "$line" | grep -q "INFO"; then
-            color="${GREEN}"
-        fi
-        printf "  ${CYAN}│${NC}  %-10s ${color}%-58s${NC} ${CYAN}│${NC}\n" "$time" "$line"
+        case "$line" in
+            *ERROR*) color="${RED}" ;;
+            *WARNING*) color="${YELLOW}" ;;
+            *INFO*) color="${GREEN}" ;;
+        esac
+        printf "  ${CYAN}│${NC}  %-10s ${color}%-58s${NC} ${CYAN}│${NC}\n" "$ts" "$line"
     done &
-    local jctl_pid=$!
+    local pipe_pid=$!
     read -r
-    kill $jctl_pid 2>/dev/null
-    wait $jctl_pid 2>/dev/null
+    # 杀掉整个进程组（包含 journalctl 和 while 子进程）
+    kill -- -$pipe_pid 2>/dev/null
+    wait $pipe_pid 2>/dev/null
 }
 
 do_restart() {

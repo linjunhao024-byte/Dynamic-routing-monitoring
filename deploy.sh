@@ -213,78 +213,86 @@ configure_params() {
     fi
     echo -e "${CYAN}|${NC}                                                              ${CYAN}|${NC}"
 
-    # 生成配置文件
-    cat > "$CONFIG_FILE" <<JSONEOF
-{
-  "server_name": "$server_name",
-  "region": "tokyo",
-  "mode": "full",
-  "ping_targets": [
-    {"host": "8.8.8.8", "name": "Google DNS"},
-    {"host": "8.8.4.4", "name": "Google DNS-2"},
-    {"host": "1.1.1.1", "name": "Cloudflare"},
-    {"host": "1.0.0.1", "name": "Cloudflare-2"},
-    {"host": "208.67.222.222", "name": "OpenDNS"},
-    {"host": "168.63.129.16", "name": "Azure"},
-    {"host": "13.107.42.14", "name": "Microsoft"},
-    {"host": "99.86.1.150", "name": "Amazon CloudFront"}
-  ],
-  "traceroute_targets": [
-    {"host": "8.8.8.8", "name": "Google"},
-    {"host": "1.1.1.1", "name": "Cloudflare"},
-    {"host": "13.107.42.14", "name": "Microsoft"}
-  ],
-  "speedtest": {
-    "enabled": true,
-    "interval_sec": 1800,
-    "target_url": "https://cdn.jsdelivr.net/npm/jquery@3.7.1/dist/jquery.min.js"
-  },
-  "monitoring": {
-    "ping_interval_sec": 30,
-    "ping_count": 10,
-    "ping_jitter_sec": 5,
-    "traceroute_interval_sec": 1800,
-    "traceroute_on_anomaly": true,
-    "baseline_sample_count": 100
-  },
-  "alert": {
-    "latency_multiplier": 1.8,
-    "latency_abs_threshold_ms": 80,
-    "packet_loss_threshold_pct": 3.0,
-    "speed_drop_threshold_pct": 50,
-    "consecutive_failures": 3,
-    "cooldown_sec": 300,
-    "recovery_notify": true
-  },
-  "telegram": {
-    "enabled": $tg_enabled,
-    "bot_token": "$tg_token",
-    "chat_id": "$tg_chatid"
-  },
-  "dingtalk": {
-    "enabled": $dt_enabled,
-    "webhook_url": "$dt_webhook",
-    "secret": "$dt_secret"
-  },
-  "web": {
-    "enabled": true,
-    "port": 8080,
-    "host": "0.0.0.0",
-    "username": "$web_username",
-    "password": "$web_password"
-  },
-  "database": {
-    "path": "monitor.db",
-    "cleanup_days": 30
-  },
-  "log": {
-    "level": "INFO",
-    "file": "monitor.log",
-    "max_size_mb": 50,
-    "backup_count": 5
-  }
+    # 生成配置文件（用 Python 安全写入，避免 JSON 注入）
+    DEPLOY_SERVER_NAME="$server_name" DEPLOY_TG_ENABLED="$tg_enabled" \
+    DEPLOY_TG_TOKEN="$tg_token" DEPLOY_TG_CHATID="$tg_chatid" \
+    DEPLOY_DT_ENABLED="$dt_enabled" DEPLOY_DT_WEBHOOK="$dt_webhook" DEPLOY_DT_SECRET="$dt_secret" \
+    DEPLOY_WEB_USER="$web_username" DEPLOY_WEB_PASS="$web_password" \
+    DEPLOY_CONFIG_FILE="$CONFIG_FILE" \
+    python3 -c "
+import json, os
+cfg = {
+    'server_name': os.environ.get('DEPLOY_SERVER_NAME', ''),
+    'region': 'tokyo',
+    'mode': 'full',
+    'ping_targets': [
+        {'host': '8.8.8.8', 'name': 'Google DNS'},
+        {'host': '8.8.4.4', 'name': 'Google DNS-2'},
+        {'host': '1.1.1.1', 'name': 'Cloudflare'},
+        {'host': '1.0.0.1', 'name': 'Cloudflare-2'},
+        {'host': '208.67.222.222', 'name': 'OpenDNS'},
+        {'host': '168.63.129.16', 'name': 'Azure'},
+        {'host': '13.107.42.14', 'name': 'Microsoft'},
+        {'host': '99.86.1.150', 'name': 'Amazon CloudFront'}
+    ],
+    'traceroute_targets': [
+        {'host': '8.8.8.8', 'name': 'Google'},
+        {'host': '1.1.1.1', 'name': 'Cloudflare'},
+        {'host': '13.107.42.14', 'name': 'Microsoft'}
+    ],
+    'speedtest': {
+        'enabled': True,
+        'interval_sec': 1800,
+        'target_url': 'https://cdn.jsdelivr.net/npm/jquery@3.7.1/dist/jquery.min.js'
+    },
+    'monitoring': {
+        'ping_interval_sec': 30,
+        'ping_count': 10,
+        'ping_jitter_sec': 5,
+        'traceroute_interval_sec': 1800,
+        'traceroute_on_anomaly': True,
+        'baseline_sample_count': 100
+    },
+    'alert': {
+        'latency_multiplier': 1.8,
+        'latency_abs_threshold_ms': 80,
+        'packet_loss_threshold_pct': 3.0,
+        'speed_drop_threshold_pct': 50,
+        'consecutive_failures': 3,
+        'cooldown_sec': 300,
+        'recovery_notify': True
+    },
+    'telegram': {
+        'enabled': os.environ.get('DEPLOY_TG_ENABLED', 'false') == 'true',
+        'bot_token': os.environ.get('DEPLOY_TG_TOKEN', ''),
+        'chat_id': os.environ.get('DEPLOY_TG_CHATID', '')
+    },
+    'dingtalk': {
+        'enabled': os.environ.get('DEPLOY_DT_ENABLED', 'false') == 'true',
+        'webhook_url': os.environ.get('DEPLOY_DT_WEBHOOK', ''),
+        'secret': os.environ.get('DEPLOY_DT_SECRET', '')
+    },
+    'web': {
+        'enabled': True,
+        'port': 8080,
+        'host': '0.0.0.0',
+        'username': os.environ.get('DEPLOY_WEB_USER', 'admin'),
+        'password': os.environ.get('DEPLOY_WEB_PASS', '')
+    },
+    'database': {
+        'path': 'monitor.db',
+        'cleanup_days': 30
+    },
+    'log': {
+        'level': 'INFO',
+        'file': 'monitor.log',
+        'max_size_mb': 50,
+        'backup_count': 5
+    }
 }
-JSONEOF
+with open(os.environ['DEPLOY_CONFIG_FILE'], 'w') as f:
+    json.dump(cfg, f, indent=2, ensure_ascii=False)
+"
 
     printf "${CYAN}|${NC}  ${GREEN}[✓]${NC} 配置已保存                                                ${CYAN}|${NC}\n"
 

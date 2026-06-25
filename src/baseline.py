@@ -3,8 +3,8 @@ import logging
 
 logger = logging.getLogger("baseline")
 
-def compute_baseline(db, target_host):
-    rows = db.get_recent_pings(target_host, count=100)
+def compute_baseline(db, target_host, sample_count=100):
+    rows = db.get_recent_pings(target_host, count=sample_count)
     if len(rows) < 20:
         logger.info(f"Not enough data for baseline on {target_host} ({len(rows)} samples)")
         return None

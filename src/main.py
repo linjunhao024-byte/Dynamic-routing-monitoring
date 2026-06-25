@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import time
 import random
+import json
 import logging
 import logging.handlers
 import sys
@@ -93,16 +94,17 @@ def do_ping_cycle(db, config):
                     cooldown = config["alert"]["cooldown_sec"]
                     last = db.get_last_alert_time("ping_anomaly", host)
                     if time.time() - last > cooldown and should_alert():
+                        bl = db.get_baseline(host)
                         msg = build_alert_message("延迟/丢包异常", severity, config["server_name"], {
                             "目标": f"{name} ({host})",
-                            "延迟": f"{latency:.1f}ms (基线: {db.get_baseline(host)[0]:.1f}ms)" if db.get_baseline(host) else f"{latency:.1f}ms",
+                            "延迟": f"{latency:.1f}ms (基线: {bl[0]:.1f}ms)" if bl else f"{latency:.1f}ms",
                             "抖动": f"{std:.1f}ms",
                             "丢包": f"{loss:.1f}%",
                             "原因": reason,
                             "连续异常": f"{_consecutive_failures[host]}次"
                         })
                         send_alert(config, msg)
-                        db.save_alert("ping_anomaly", severity, f"{host} {reason}")
+                        db.save_alert("ping_anomaly", severity, f"{host} {reason}", host)
                         logger.warning(f"ALERT SENT [{severity}]: {name} {reason}")
             else:
                 if _consecutive_failures.get(host, 0) >= config["alert"]["consecutive_failures"]:
@@ -113,7 +115,7 @@ def do_ping_cycle(db, config):
                             "丢包": f"{loss:.1f}%"
                         })
                         send_alert(config, msg)
-                        db.save_alert("ping_recovery", "recovery", f"{host} recovered")
+                        db.save_alert("ping_recovery", "recovery", f"{host} recovered", host)
                 _consecutive_failures[host] = 0
         else:
             db.save_ping(host, name, None, None, None, None, 100.0, True)
@@ -141,6 +143,8 @@ def do_traceroute_cycle(db, config):
             else:
                 changed, detail = False, "first run, setting baseline"
             db.save_traceroute(host, name, result["hops"], hop_count, changed, detail)
+            # 更新 baseline 的 hops（无论是否变化，保持最新）
+            db.update_baseline_hops(host, hop_count, json.dumps(result["hops"]))
             if changed:
                 cooldown = config["alert"]["cooldown_sec"]
                 last = db.get_last_alert_time("path_change", host)
@@ -156,7 +160,7 @@ def do_traceroute_cycle(db, config):
                         "经过地区": geo_str
                     })
                     send_alert(config, msg)
-                    db.save_alert("path_change", "warning", f"{host} {detail}")
+                    db.save_alert("path_change", "warning", f"{host} {detail}", host)
                     logger.warning(f"PATH CHANGED: {name} {detail}")
             hops_str = " -> ".join(h["ip"] for h in result["hops"][:5])
             logger.info(f"[{'CHANGED' if changed else 'OK'}] {name}: {hop_count} hops | {hops_str}")
@@ -194,15 +198,17 @@ def do_speedtest_cycle(db, config):
 
 def update_baselines(db, config):
     logger = logging.getLogger("baseline")
+    sample_count = config["monitoring"].get("baseline_sample_count", 100)
     for t in config["ping_targets"]:
         host = t["host"]
-        bl = compute_baseline(db, host)
+        bl = compute_baseline(db, host, sample_count)
         if bl:
             old = db.get_baseline(host)
             old_avg = old[0] if old else None
+            # 保留现有的 hops（由 do_traceroute_cycle 维护）
             old_hops = old[5] if old else "[]"
-            hop_count = old[4] if old else 0
-            db.save_baseline(host, bl["avg_ms"], bl["std_ms"], bl["min_ms"], bl["max_ms"], hop_count, old_hops)
+            old_hop_count = old[4] if old else 0
+            db.save_baseline(host, bl["avg_ms"], bl["std_ms"], bl["min_ms"], bl["max_ms"], old_hop_count, old_hops)
             if old_avg and abs(bl["avg_ms"] - old_avg) > old_avg * 0.3:
                 logger.warning(f"Baseline shifted for {host}: {old_avg:.1f}ms -> {bl['avg_ms']:.1f}ms")
             else:

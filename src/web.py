@@ -9,6 +9,8 @@ import time
 import threading
 import logging
 import subprocess
+import base64
+import hashlib
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from urllib.parse import urlparse, parse_qs
 
@@ -430,6 +432,31 @@ class RequestHandler(BaseHTTPRequestHandler):
     def log_message(self, format, *args):
         logger.debug(f"{self.client_address[0]} - {format % args}")
 
+    def _check_auth(self):
+        """检查 HTTP Basic Auth。未设置密码时跳过认证。"""
+        web_cfg = _config.get('web', {}) if _config else {}
+        password = web_cfg.get('password', '')
+        if not password:
+            return True
+        username = web_cfg.get('username', 'admin')
+        auth_header = self.headers.get('Authorization', '')
+        if auth_header.startswith('Basic '):
+            try:
+                decoded = base64.b64decode(auth_header[6:]).decode('utf-8')
+                req_user, req_pass = decoded.split(':', 1)
+                if req_user == username and req_pass == password:
+                    return True
+            except Exception:
+                pass
+        self.send_response(401)
+        self.send_header('WWW-Authenticate', 'Basic realm="Route Monitor"')
+        self.send_header('Content-Type', 'text/html')
+        body = b'<h1>401 Unauthorized</h1>'
+        self.send_header('Content-Length', len(body))
+        self.end_headers()
+        self.wfile.write(body)
+        return False
+
     def _send_json(self, data, status=200):
         body = json.dumps(data, ensure_ascii=False).encode('utf-8')
         self.send_response(status)
@@ -451,6 +478,8 @@ class RequestHandler(BaseHTTPRequestHandler):
         return parsed.path.rstrip('/'), parse_qs(parsed.query)
 
     def do_GET(self):
+        if not self._check_auth():
+            return
         path, query = self._parse_path()
 
         if path in ('', '/'):
@@ -476,6 +505,8 @@ class RequestHandler(BaseHTTPRequestHandler):
             self._send_json({'error': 'Not Found'}, 404)
 
     def do_POST(self):
+        if not self._check_auth():
+            return
         path, _ = self._parse_path()
 
         if path == '/api/speed/run':
@@ -616,9 +647,9 @@ class RequestHandler(BaseHTTPRequestHandler):
 
     def _handle_alert_test(self):
         try:
-            from alerter import send_alert
+            from alerter import send_test_alert
             msg = f"🔔 Web 测试告警\n\n服务器: {_config.get('server_name')}\n时间: {time.strftime('%Y-%m-%d %H:%M:%S')}\n\n如果你看到这条消息，说明告警通道正常！"
-            ok = send_alert(_config, msg)
+            ok = send_test_alert(_config, msg)
             self._send_json({'ok': ok})
         except Exception as e:
             logger.error(f"Alert test error: {e}")
