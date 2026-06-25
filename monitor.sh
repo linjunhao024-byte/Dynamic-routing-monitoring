@@ -251,11 +251,18 @@ do_edit_config() {
         local latency_ms=$(get_config_value "alert.latency_abs_threshold_ms")
         local loss_pct=$(get_config_value "alert.packet_loss_threshold_pct")
 
+        # 检测自动菜单状态
+        local auto_menu_status="未启用"
+        if grep -q "# route-monitor-auto-menu" "$HOME/.bashrc" 2>/dev/null; then
+            auto_menu_status="已启用"
+        fi
+
         echo -e "${CYAN}+===========================================================================+${NC}"
         printf "${CYAN}|${NC}  ${BOLD}%-69s${NC}${CYAN}|${NC}\n" "编辑配置"
         echo -e "${CYAN}+---------------------------------------------------------------------------+${NC}"
         echo -e "${CYAN}|${NC}  ${BOLD}基本设置${NC}                                                               ${CYAN}|${NC}"
         printf "${CYAN}|${NC}    ${CYAN}[1]${NC} 服务器名称    ${GREEN}%-51s${NC}${CYAN}|${NC}\n" "$name"
+        printf "${CYAN}|${NC}    ${CYAN}[7]${NC} 登录自动菜单  ${GREEN}%-51s${NC}${CYAN}|${NC}\n" "$auto_menu_status"
         echo -e "${CYAN}|${NC}                                                              ${CYAN}|${NC}"
         echo -e "${CYAN}|${NC}  ${BOLD}告警渠道${NC}                                                               ${CYAN}|${NC}"
         printf "${CYAN}|${NC}    ${CYAN}[2]${NC} Telegram      ${GREEN}%-51s${NC}${CYAN}|${NC}\n" "$tg_enabled"
@@ -302,6 +309,18 @@ do_edit_config() {
                 echo -ne "  丢包阈值(%): "
                 read val
                 [[ "$val" =~ ^[0-9]+$ ]] && set_config_value "alert.packet_loss_threshold_pct" "$val"
+                ;;
+            7)
+                if grep -q "# route-monitor-auto-menu" "$HOME/.bashrc" 2>/dev/null; then
+                    sed -i "/# route-monitor-auto-menu/,+1d" "$HOME/.bashrc"
+                    echo -e "  ${YELLOW}[✓]${NC} 已取消登录自动进入菜单"
+                else
+                    echo "" >> "$HOME/.bashrc"
+                    echo "# route-monitor-auto-menu" >> "$HOME/.bashrc"
+                    echo "monitor" >> "$HOME/.bashrc"
+                    echo -e "  ${GREEN}[✓]${NC} 已启用登录自动进入菜单"
+                fi
+                sleep 1
                 ;;
             s|S)
                 systemctl restart $SERVICE
