@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import time
+import random
 import logging
 import logging.handlers
 import sys
@@ -17,9 +18,12 @@ from baseline import compute_baseline, check_anomaly, check_path_change, check_s
 from alerter import send_alert, build_alert_message, build_daily_report
 from tg_bot import TelegramBot
 from geoip import get_path_countries
+from web import start_web_server
 
 running = True
 tg_bot = None
+# 全局 consecutive 计数器（跨调用保持状态）
+_consecutive_failures = {}
 
 def signal_handler(sig, frame):
     global running
@@ -53,11 +57,15 @@ def should_alert():
     return True
 
 def do_ping_cycle(db, config):
+    """执行一次 ping 周期，返回是否有异常触发 traceroute"""
     logger = logging.getLogger("ping")
+    global _consecutive_failures
+
     targets = config["ping_targets"]
     count = config["monitoring"]["ping_count"]
-    consecutive = {}
     results = []
+    need_traceroute = False  # 是否需要触发 traceroute
+
     for target in targets:
         host = target["host"]
         name = target["name"]
@@ -73,10 +81,15 @@ def do_ping_cycle(db, config):
             status = "ANOMALY" if is_anomaly else "OK"
             logger.info(f"[{status}] {name}({host}): {latency:.1f}ms (min:{min_ms:.1f} max:{max_ms:.1f} std:{std:.1f}) loss:{loss:.1f}%")
             results.append({"host": host, "name": name, "latency": latency, "loss": loss, "anomaly": is_anomaly})
+
             if is_anomaly:
-                consecutive[host] = consecutive.get(host, 0) + 1
+                _consecutive_failures[host] = _consecutive_failures.get(host, 0) + 1
+                # 检测到异常，标记需要 traceroute
+                if _consecutive_failures[host] >= 2:
+                    need_traceroute = True
+
                 threshold = config["alert"]["consecutive_failures"]
-                if consecutive[host] >= threshold:
+                if _consecutive_failures[host] >= threshold:
                     cooldown = config["alert"]["cooldown_sec"]
                     last = db.get_last_alert_time("ping_anomaly", host)
                     if time.time() - last > cooldown and should_alert():
@@ -86,13 +99,13 @@ def do_ping_cycle(db, config):
                             "抖动": f"{std:.1f}ms",
                             "丢包": f"{loss:.1f}%",
                             "原因": reason,
-                            "连续异常": f"{consecutive[host]}次"
+                            "连续异常": f"{_consecutive_failures[host]}次"
                         })
                         send_alert(config, msg)
                         db.save_alert("ping_anomaly", severity, f"{host} {reason}")
                         logger.warning(f"ALERT SENT [{severity}]: {name} {reason}")
             else:
-                if consecutive.get(host, 0) >= config["alert"]["consecutive_failures"]:
+                if _consecutive_failures.get(host, 0) >= config["alert"]["consecutive_failures"]:
                     if config["alert"].get("recovery_notify") and should_alert():
                         msg = build_alert_message("延迟恢复", "recovery", config["server_name"], {
                             "目标": f"{name} ({host})",
@@ -101,12 +114,15 @@ def do_ping_cycle(db, config):
                         })
                         send_alert(config, msg)
                         db.save_alert("ping_recovery", "recovery", f"{host} recovered")
-                consecutive[host] = 0
+                _consecutive_failures[host] = 0
         else:
             db.save_ping(host, name, None, None, None, None, 100.0, True)
             logger.warning(f"[FAIL] {name}({host}): ping failed")
-            consecutive[host] = consecutive.get(host, 0) + 1
-    return results
+            _consecutive_failures[host] = _consecutive_failures.get(host, 0) + 1
+            if _consecutive_failures[host] >= 2:
+                need_traceroute = True
+
+    return results, need_traceroute
 
 def do_traceroute_cycle(db, config):
     logger = logging.getLogger("traceroute")
@@ -196,6 +212,12 @@ def do_cleanup(db, config):
     days = config.get("database", {}).get("cleanup_days", 30)
     db.cleanup_old_data(days)
 
+def get_sleep_interval(config):
+    """获取带随机抖动的休眠间隔"""
+    base = config["monitoring"]["ping_interval_sec"]
+    jitter = config["monitoring"].get("ping_jitter_sec", 5)
+    return base + random.uniform(0, jitter)
+
 def main():
     global running, tg_bot
     config = load_config()
@@ -204,27 +226,39 @@ def main():
     db = Database(config["database"]["path"])
     server_name = config["server_name"]
 
+    # 启动 Telegram Bot
     tg_cfg = config.get("telegram", {})
     if tg_cfg.get("enabled") and tg_cfg.get("bot_token"):
         tg_bot = TelegramBot(tg_cfg["bot_token"], tg_cfg["chat_id"], db, config)
         tg_bot.start_polling()
         logger.info("Telegram bot started")
 
+    # 启动 Web 服务器
+    web_cfg = config.get("web", {})
+    if web_cfg.get("enabled", True):
+        web_thread = start_web_server(db, config)
+        if web_thread:
+            web_port = web_cfg.get("port", 8080)
+            logger.info(f"Web dashboard: http://0.0.0.0:{web_port}")
+
     logger.info(f"{'='*50}")
-    logger.info(f"AWS Route Monitor - {server_name}")
+    logger.info(f"Dynamic Route Monitor - {server_name}")
     logger.info(f"Mode: {config.get('mode', 'full')}")
     logger.info(f"Ping targets: {[t['name'] for t in config['ping_targets']]}")
     logger.info(f"Traceroute targets: {[t['name'] for t in config['traceroute_targets']]}")
     logger.info(f"Speedtest: {'enabled' if config.get('speedtest', {}).get('enabled') else 'disabled'}")
+    logger.info(f"Traceroute on anomaly: {config['monitoring'].get('traceroute_on_anomaly', True)}")
+    logger.info(f"Ping jitter: 0-{config['monitoring'].get('ping_jitter_sec', 5)}s")
     logger.info(f"{'='*50}")
 
-    ping_interval = config["monitoring"]["ping_interval_sec"]
+    # 时间间隔配置
     tr_interval = config["monitoring"]["traceroute_interval_sec"]
     st_interval = config.get("speedtest", {}).get("interval_sec", 1800)
     bl_interval = 600
     report_interval = 86400
     cleanup_interval = 86400
     sample_count = config["monitoring"]["baseline_sample_count"]
+    traceroute_on_anomaly = config["monitoring"].get("traceroute_on_anomaly", True)
 
     last_tr = 0
     last_bl = 0
@@ -238,17 +272,35 @@ def main():
     while running:
         try:
             now = time.time()
-            do_ping_cycle(db, config)
+
+            # 执行 ping 周期
+            ping_results, need_traceroute = do_ping_cycle(db, config)
             cycle += 1
+
+            # Traceroute：定时 或 异常触发
+            should_traceroute = False
             if now - last_tr >= tr_interval:
+                should_traceroute = True
+                logger.info("Traceroute: scheduled")
+            elif need_traceroute and traceroute_on_anomaly and now - last_tr >= 60:
+                should_traceroute = True
+                logger.info("Traceroute: triggered by anomaly")
+
+            if should_traceroute:
                 do_traceroute_cycle(db, config)
                 last_tr = now
+
+            # 测速
             if now - last_st >= st_interval:
                 do_speedtest_cycle(db, config)
                 last_st = now
+
+            # 更新基线
             if now - last_bl >= bl_interval:
                 update_baselines(db, config)
                 last_bl = now
+
+            # 预热完成
             if cycle == sample_count:
                 logger.info("Warmup complete, computing initial baselines...")
                 update_baselines(db, config)
@@ -256,10 +308,11 @@ def main():
                 if should_alert():
                     stats = db.get_stats_summary(hours=1)
                     if stats:
-                        from alerter import build_daily_report
                         report = "✅ 路由监测已启动\n\n" + build_daily_report(config, stats)
                         send_alert(config, report)
                         logger.info("Startup report sent")
+
+            # 每日报告
             if now - last_report >= report_interval:
                 stats = db.get_stats_summary(hours=24)
                 if stats:
@@ -267,10 +320,16 @@ def main():
                     send_alert(config, report)
                     logger.info("Daily report sent")
                 last_report = now
+
+            # 清理旧数据
             if now - last_cleanup >= cleanup_interval:
                 do_cleanup(db, config)
                 last_cleanup = now
-            time.sleep(ping_interval)
+
+            # 带随机抖动的休眠
+            sleep_time = get_sleep_interval(config)
+            time.sleep(sleep_time)
+
         except KeyboardInterrupt:
             logger.info("Shutting down...")
             break

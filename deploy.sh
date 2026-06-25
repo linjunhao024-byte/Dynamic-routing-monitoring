@@ -4,90 +4,216 @@ set -e
 INSTALL_DIR="$(cd "$(dirname "$0")" && pwd)"
 CONFIG_FILE="$INSTALL_DIR/config.local.json"
 
-# 颜色
+# 颜色定义
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
 CYAN='\033[0;36m'
+MAGENTA='\033[0;35m'
+BOLD='\033[1m'
+DIM='\033[2m'
 NC='\033[0m'
 
-echo ""
-echo -e "${CYAN}╔══════════════════════════════════════════╗${NC}"
-echo -e "${CYAN}║     AWS 动态路由监测工具 - 安装程序      ║${NC}"
-echo -e "${CYAN}╚══════════════════════════════════════════╝${NC}"
-echo ""
+show_logo() {
+    echo -e "${CYAN}"
+    echo "    ____  _   _ ___________  ____  _   _ ______ _____   ____ ___  ____  _____"
+    echo "   |  _ \| | | |_   _| ___ \/ ___|| | | |  ____|  _  \ / ___/ _ \|  _ \| ____|"
+    echo "   | |_) | | | | | | | |_/ / |  _ | |_| | |__  | |_) | |  | | | | |_) |  _|"
+    echo "   |  _ <| | | | | | |    /| |_| ||  _  |  __| |  _ <| |__| |_| |  _ <| |___"
+    echo "   | |_) | |_| | | | | |\ \|  _| || | | | |    | |_) |\____\___/| |_\ \_____|"
+    echo "   |____/ \___/  |_| |_| \_\_|   |_| |_|_|    |____/      \___/ \____/      "
+    echo -e "${NC}"
+    echo -e "${BOLD}                        Dynamic Routing Monitoring${NC}"
+    echo -e "${BOLD}                            动态路由监测工具${NC}"
+    echo ""
+}
 
-# ========== 第一步：安装系统依赖 ==========
-echo -e "${YELLOW}[1/5] 安装系统依赖...${NC}"
-if command -v apt-get &> /dev/null; then
-    apt-get update -qq > /dev/null 2>&1
-    apt-get install -y -qq python3 python3-pip python3-venv traceroute unzip curl > /dev/null 2>&1
-elif command -v yum &> /dev/null; then
-    yum install -y python3 python3-pip traceroute unzip curl > /dev/null 2>&1
-fi
-echo -e "${GREEN}  ✓ 系统依赖安装完成${NC}"
+# ============================================================================
+# 环境检查
+# ============================================================================
 
-# ========== 第二步：创建虚拟环境 ==========
-echo -e "${YELLOW}[2/5] 创建 Python 虚拟环境...${NC}"
-if [ ! -d "$INSTALL_DIR/venv" ]; then
-    python3 -m venv "$INSTALL_DIR/venv"
-fi
-source "$INSTALL_DIR/venv/bin/activate"
-pip install -r "$INSTALL_DIR/requirements.txt" --quiet 2>/dev/null
-deactivate
-echo -e "${GREEN}  ✓ Python 依赖安装完成${NC}"
+check_environment() {
+    echo -e "${CYAN}+===========================================================================+${NC}"
+    printf "${CYAN}|${NC}  ${BOLD}%-69s${NC}${CYAN}|${NC}\n" "环境检查"
+    echo -e "${CYAN}+---------------------------------------------------------------------------+${NC}"
 
-# ========== 第三步：交互式配置 ==========
-echo -e "${YELLOW}[3/5] 配置参数${NC}"
-echo ""
+    local ok=true
 
-# 如果已有配置，询问是否保留
-if [ -f "$CONFIG_FILE" ]; then
-    echo -e "${CYAN}检测到已有配置文件${NC}"
-    read -p "是否重新配置？(y/n): " reconfig
-    if [ "$reconfig" != "y" ] && [ "$reconfig" != "Y" ]; then
-        echo -e "${GREEN}  ✓ 使用已有配置${NC}"
+    # 检查 Python
+    if command -v python3 &> /dev/null; then
+        local py_ver=$(python3 --version 2>&1 | awk '{print $2}')
+        printf "${CYAN}|${NC}  ${GREEN}[✓]${NC} Python %-59s${CYAN}|${NC}\n" "$py_ver"
     else
+        printf "${CYAN}|${NC}  ${RED}[✗]${NC} Python 未安装                                            ${CYAN}|${NC}\n"
+        ok=false
+    fi
+
+    # 检查 pip
+    if command -v pip3 &> /dev/null || command -v pip &> /dev/null; then
+        printf "${CYAN}|${NC}  ${GREEN}[✓]${NC} pip                                                   ${CYAN}|${NC}\n"
+    else
+        printf "${CYAN}|${NC}  ${RED}[✗]${NC} pip 未安装                                              ${CYAN}|${NC}\n"
+        ok=false
+    fi
+
+    # 检查 traceroute
+    if command -v traceroute &> /dev/null; then
+        printf "${CYAN}|${NC}  ${GREEN}[✓]${NC} traceroute                                            ${CYAN}|${NC}\n"
+    else
+        printf "${CYAN}|${NC}  ${YELLOW}[!]${NC} traceroute 未安装（将自动安装）                        ${CYAN}|${NC}\n"
+    fi
+
+    # 检查 systemctl
+    if command -v systemctl &> /dev/null; then
+        printf "${CYAN}|${NC}  ${GREEN}[✓]${NC} systemd                                               ${CYAN}|${NC}\n"
+    else
+        printf "${CYAN}|${NC}  ${RED}[✗]${NC} systemd 不可用                                          ${CYAN}|${NC}\n"
+        ok=false
+    fi
+
+    echo -e "${CYAN}+===========================================================================+${NC}"
+
+    if ! $ok; then
+        echo ""
+        echo -e "  ${RED}环境检查失败，请先安装缺失的依赖${NC}"
+        exit 1
+    fi
+}
+
+# ============================================================================
+# 安装步骤
+# ============================================================================
+
+install_dependencies() {
+    echo ""
+    echo -e "${CYAN}+===========================================================================+${NC}"
+    printf "${CYAN}|${NC}  ${BOLD}%-69s${NC}${CYAN}|${NC}\n" "[1/5] 安装系统依赖"
+    echo -e "${CYAN}+---------------------------------------------------------------------------+${NC}"
+
+    if command -v apt-get &> /dev/null; then
+        printf "${CYAN}|${NC}  %-69s${CYAN}|${NC}\n" "检测到 apt 包管理器"
+        apt-get update -qq > /dev/null 2>&1
+        apt-get install -y -qq python3 python3-pip python3-venv traceroute unzip curl > /dev/null 2>&1
+    elif command -v yum &> /dev/null; then
+        printf "${CYAN}|${NC}  %-69s${CYAN}|${NC}\n" "检测到 yum 包管理器"
+        yum install -y python3 python3-pip traceroute unzip curl > /dev/null 2>&1
+    elif command -v dnf &> /dev/null; then
+        printf "${CYAN}|${NC}  %-69s${CYAN}|${NC}\n" "检测到 dnf 包管理器"
+        dnf install -y python3 python3-pip traceroute unzip curl > /dev/null 2>&1
+    fi
+
+    printf "${CYAN}|${NC}  ${GREEN}[✓]${NC} 系统依赖安装完成                                           ${CYAN}|${NC}\n"
+    echo -e "${CYAN}+===========================================================================+${NC}"
+}
+
+setup_python_env() {
+    echo ""
+    echo -e "${CYAN}+===========================================================================+${NC}"
+    printf "${CYAN}|${NC}  ${BOLD}%-69s${NC}${CYAN}|${NC}\n" "[2/5] 创建 Python 虚拟环境"
+    echo -e "${CYAN}+---------------------------------------------------------------------------+${NC}"
+
+    if [ ! -d "$INSTALL_DIR/venv" ]; then
+        printf "${CYAN}|${NC}  %-69s${CYAN}|${NC}\n" "正在创建虚拟环境..."
+        python3 -m venv "$INSTALL_DIR/venv"
+    else
+        printf "${CYAN}|${NC}  %-69s${CYAN}|${NC}\n" "虚拟环境已存在，跳过创建"
+    fi
+
+    printf "${CYAN}|${NC}  %-69s${CYAN}|${NC}\n" "正在安装 Python 依赖..."
+    source "$INSTALL_DIR/venv/bin/activate"
+    pip install -r "$INSTALL_DIR/requirements.txt" --quiet 2>/dev/null
+    deactivate
+
+    printf "${CYAN}|${NC}  ${GREEN}[✓]${NC} Python 环境配置完成                                         ${CYAN}|${NC}\n"
+    echo -e "${CYAN}+===========================================================================+${NC}"
+}
+
+configure_params() {
+    echo ""
+    echo -e "${CYAN}+===========================================================================+${NC}"
+    printf "${CYAN}|${NC}  ${BOLD}%-69s${NC}${CYAN}|${NC}\n" "[3/5] 配置参数"
+    echo -e "${CYAN}+---------------------------------------------------------------------------+${NC}"
+    echo -e "${CYAN}|${NC}                                                              ${CYAN}|${NC}"
+
+    # 如果已有配置，询问是否保留
+    if [ -f "$CONFIG_FILE" ]; then
+        printf "${CYAN}|${NC}  ${YELLOW}[!]${NC} 检测到已有配置文件                                        ${CYAN}|${NC}\n"
+        echo -e "${CYAN}|${NC}                                                              ${CYAN}|${NC}"
+        echo -ne "${CYAN}|${NC}  是否重新配置？(y/N) [默认: N]: "
+        read reconfig
+        if [ "$reconfig" != "y" ] && [ "$reconfig" != "Y" ]; then
+            printf "${CYAN}|${NC}  ${GREEN}[✓]${NC} 使用已有配置                                            ${CYAN}|${NC}\n"
+            echo -e "${CYAN}|${NC}                                                              ${CYAN}|${NC}"
+            echo -e "${CYAN}+===========================================================================+${NC}"
+            return
+        fi
         rm -f "$CONFIG_FILE"
     fi
-fi
 
-if [ ! -f "$CONFIG_FILE" ]; then
-    echo -e "${CYAN}── 基本信息 ──${NC}"
-    read -p "服务器名称 (如 tokyo-aws-01): " server_name
+    # 服务器名称
+    echo -ne "${CYAN}|${NC}  服务器名称 [默认: $(hostname)]: "
+    read server_name
     if [ -z "$server_name" ]; then
         server_name="server-$(hostname | tail -c 8)"
     fi
-    echo ""
+    echo -e "${CYAN}|${NC}                                                              ${CYAN}|${NC}"
 
-    echo -e "${CYAN}── Telegram 告警 ──${NC}"
-    read -p "是否启用 Telegram 告警？(y/n): " enable_tg
+    # Telegram 配置
+    printf "${CYAN}|${NC}  ${BOLD}%-69s${NC}${CYAN}|${NC}\n" "Telegram 告警配置"
+    echo -ne "${CYAN}|${NC}  启用 Telegram？(y/N) [默认: N]: "
+    read enable_tg
+    tg_enabled="false"
     tg_token=""
     tg_chatid=""
     if [ "$enable_tg" = "y" ] || [ "$enable_tg" = "Y" ]; then
-        read -p "Bot Token: " tg_token
-        read -p "Chat ID: " tg_chatid
-    fi
-    echo ""
-
-    echo -e "${CYAN}── 钉钉告警 ──${NC}"
-    read -p "是否启用钉钉告警？(y/n): " enable_dt
-    dt_webhook=""
-    if [ "$enable_dt" = "y" ] || [ "$enable_dt" = "Y" ]; then
-        read -p "Webhook URL: " dt_webhook
-    fi
-    echo ""
-
-    # 生成配置文件
-    tg_enabled="false"
-    if [ "$enable_tg" = "y" ] || [ "$enable_tg" = "Y" ]; then
         tg_enabled="true"
+        echo -ne "${CYAN}|${NC}  Bot Token: "
+        read tg_token
+        echo -ne "${CYAN}|${NC}  Chat ID: "
+        read tg_chatid
     fi
+    echo -e "${CYAN}|${NC}                                                              ${CYAN}|${NC}"
+
+    # 钉钉配置
+    printf "${CYAN}|${NC}  ${BOLD}%-69s${NC}${CYAN}|${NC}\n" "钉钉告警配置"
+    echo -ne "${CYAN}|${NC}  启用钉钉？(y/N) [默认: N]: "
+    read enable_dt
     dt_enabled="false"
+    dt_webhook=""
+    dt_secret=""
     if [ "$enable_dt" = "y" ] || [ "$enable_dt" = "Y" ]; then
         dt_enabled="true"
+        echo -ne "${CYAN}|${NC}  Webhook URL: "
+        read dt_webhook
+        echo -ne "${CYAN}|${NC}  加签密钥 (可留空): "
+        read dt_secret
     fi
+    echo -e "${CYAN}|${NC}                                                              ${CYAN}|${NC}"
 
+    # 自定义快捷命令
+    echo -ne "${CYAN}|${NC}  管理命令名称 [默认: monitor]: "
+    read cmd_name
+    CMD_NAME="${cmd_name:-monitor}"
+    CMD_NAME="${CMD_NAME:0:7}"
+    echo -e "${CYAN}|${NC}                                                              ${CYAN}|${NC}"
+
+    # Web 面板认证
+    printf "${CYAN}|${NC}  ${BOLD}%-69s${NC}${CYAN}|${NC}\n" "Web 面板认证"
+    echo -ne "${CYAN}|${NC}  用户名 [默认: admin]: "
+    read web_username
+    web_username="${web_username:-admin}"
+    echo -ne "${CYAN}|${NC}  密码 [留空=不启用认证]: "
+    read -s web_password
+    echo ""
+    if [ -z "$web_password" ]; then
+        printf "${CYAN}|${NC}  ${YELLOW}[!]${NC} 未设置密码，Web 面板将无需认证                        ${CYAN}|${NC}\n"
+    else
+        printf "${CYAN}|${NC}  ${GREEN}[✓]${NC} Web 面板认证已启用                                    ${CYAN}|${NC}\n"
+    fi
+    echo -e "${CYAN}|${NC}                                                              ${CYAN}|${NC}"
+
+    # 生成配置文件
     cat > "$CONFIG_FILE" <<JSONEOF
 {
   "server_name": "$server_name",
@@ -111,12 +237,14 @@ if [ ! -f "$CONFIG_FILE" ]; then
   "speedtest": {
     "enabled": true,
     "interval_sec": 1800,
-    "target_url": "http://speedtest.tele2.net/10MB.zip"
+    "target_url": "https://cdn.jsdelivr.net/npm/jquery@3.7.1/dist/jquery.min.js"
   },
   "monitoring": {
-    "ping_interval_sec": 5,
+    "ping_interval_sec": 30,
     "ping_count": 10,
-    "traceroute_interval_sec": 180,
+    "ping_jitter_sec": 5,
+    "traceroute_interval_sec": 1800,
+    "traceroute_on_anomaly": true,
     "baseline_sample_count": 100
   },
   "alert": {
@@ -136,7 +264,14 @@ if [ ! -f "$CONFIG_FILE" ]; then
   "dingtalk": {
     "enabled": $dt_enabled,
     "webhook_url": "$dt_webhook",
-    "secret": ""
+    "secret": "$dt_secret"
+  },
+  "web": {
+    "enabled": true,
+    "port": 8080,
+    "host": "0.0.0.0",
+    "username": "$web_username",
+    "password": "$web_password"
   },
   "database": {
     "path": "monitor.db",
@@ -150,24 +285,42 @@ if [ ! -f "$CONFIG_FILE" ]; then
   }
 }
 JSONEOF
-    echo -e "${GREEN}  ✓ 配置已保存${NC}"
+
+    printf "${CYAN}|${NC}  ${GREEN}[✓]${NC} 配置已保存                                                ${CYAN}|${NC}\n"
 
     # 显示配置摘要
-    echo ""
-    echo -e "${CYAN}── 配置摘要 ──${NC}"
-    echo -e "  服务器名称: ${GREEN}$server_name${NC}"
-    echo -e "  Telegram:   ${GREEN}$tg_enabled${NC}"
-    echo -e "  钉钉:       ${GREEN}$dt_enabled${NC}"
-    echo ""
-fi
+    echo -e "${CYAN}|${NC}                                                              ${CYAN}|${NC}"
+    echo -e "${CYAN}+---------------------------------------------------------------------------+${NC}"
+    printf "${CYAN}|${NC}  ${BOLD}%-69s${NC}${CYAN}|${NC}\n" "配置摘要"
+    echo -e "${CYAN}+---------------------------------------------------------------------------+${NC}"
+    printf "${CYAN}|${NC}    服务器名称  ${GREEN}%-53s${NC}${CYAN}|${NC}\n" "$server_name"
+    printf "${CYAN}|${NC}    Telegram    ${GREEN}%-53s${NC}${CYAN}|${NC}\n" "$tg_enabled"
+    printf "${CYAN}|${NC}    钉钉        ${GREEN}%-53s${NC}${CYAN}|${NC}\n" "$dt_enabled"
+    printf "${CYAN}|${NC}    管理命令    ${GREEN}%-53s${NC}${CYAN}|${NC}\n" "$CMD_NAME"
+    printf "${CYAN}|${NC}    Web 面板    ${GREEN}%-53s${NC}${CYAN}|${NC}\n" "http://0.0.0.0:8080"
+    if [ -n "$web_password" ]; then
+        printf "${CYAN}|${NC}    Web 账号    ${GREEN}%-53s${NC}${CYAN}|${NC}\n" "$web_username / ******"
+    else
+        printf "${CYAN}|${NC}    Web 账号    ${YELLOW}%-53s${NC}${CYAN}|${NC}\n" "未设置（无需认证）"
+    fi
+    printf "${CYAN}|${NC}    测速目标    ${GREEN}%-53s${NC}${CYAN}|${NC}\n" "HTTPS CDN"
+    printf "${CYAN}|${NC}    Ping 间隔   ${GREEN}%-53s${NC}${CYAN}|${NC}\n" "30秒 ± 5秒（随机抖动）"
+    printf "${CYAN}|${NC}    Traceroute  ${GREEN}%-53s${NC}${CYAN}|${NC}\n" "30分钟 或 异常触发"
+    echo -e "${CYAN}|${NC}                                                              ${CYAN}|${NC}"
+    echo -e "${CYAN}+===========================================================================+${NC}"
+}
 
-# ========== 第四步：创建系统服务 ==========
-echo -e "${YELLOW}[4/5] 配置系统服务...${NC}"
-PYTHON_PATH="$INSTALL_DIR/venv/bin/python3"
+setup_systemd() {
+    echo ""
+    echo -e "${CYAN}+===========================================================================+${NC}"
+    printf "${CYAN}|${NC}  ${BOLD}%-69s${NC}${CYAN}|${NC}\n" "[4/5] 配置系统服务"
+    echo -e "${CYAN}+---------------------------------------------------------------------------+${NC}"
 
-cat > /tmp/route-monitor.service <<SVCEOF
+    PYTHON_PATH="$INSTALL_DIR/venv/bin/python3"
+
+    cat > /tmp/route-monitor.service <<SVCEOF
 [Unit]
-Description=AWS Route Monitor
+Description=Dynamic Routing Monitor
 After=network.target
 
 [Service]
@@ -177,40 +330,63 @@ WorkingDirectory=$INSTALL_DIR
 ExecStart=$PYTHON_PATH $INSTALL_DIR/src/main.py
 Restart=always
 RestartSec=10
+Nice=19
+MemoryMax=100M
 
 [Install]
 WantedBy=multi-user.target
 SVCEOF
 
-mv /tmp/route-monitor.service /etc/systemd/system/route-monitor.service
-systemctl daemon-reload
-systemctl enable route-monitor > /dev/null 2>&1
-echo -e "${GREEN}  ✓ 系统服务配置完成${NC}"
+    mv /tmp/route-monitor.service /etc/systemd/system/route-monitor.service
+    systemctl daemon-reload
+    systemctl enable route-monitor > /dev/null 2>&1
 
-# ========== 第五步：安装管理命令 ==========
-echo -e "${YELLOW}[5/6] 安装管理命令...${NC}"
-if [ -f "$INSTALL_DIR/monitor.sh" ]; then
-    chmod +x "$INSTALL_DIR/monitor.sh"
-    ln -sf "$INSTALL_DIR/monitor.sh" /usr/local/bin/monitor
-    echo -e "${GREEN}  ✓ 管理命令已安装，输入 ${CYAN}monitor${GREEN} 打开管理面板${NC}"
-fi
+    printf "${CYAN}|${NC}  ${GREEN}[✓]${NC} 系统服务配置完成                                            ${CYAN}|${NC}\n"
+    echo -e "${CYAN}+===========================================================================+${NC}"
+}
 
-# ========== 第六步：启动服务并测试 ==========
-echo -e "${YELLOW}[6/6] 启动服务...${NC}"
-systemctl restart route-monitor
-sleep 2
+install_command() {
+    echo ""
+    echo -e "${CYAN}+===========================================================================+${NC}"
+    printf "${CYAN}|${NC}  ${BOLD}%-69s${NC}${CYAN}|${NC}\n" "[5/5] 安装管理命令"
+    echo -e "${CYAN}+---------------------------------------------------------------------------+${NC}"
 
-if systemctl is-active --quiet route-monitor; then
-    echo -e "${GREEN}  ✓ 服务已启动${NC}"
-else
-    echo -e "${RED}  ✗ 服务启动失败，查看日志: journalctl -u route-monitor -n 20${NC}"
-fi
+    if [ -f "$INSTALL_DIR/monitor.sh" ]; then
+        chmod +x "$INSTALL_DIR/monitor.sh"
+        ln -sf "$INSTALL_DIR/monitor.sh" "/usr/local/bin/${CMD_NAME}"
+        printf "${CYAN}|${NC}  ${GREEN}[✓]${NC} 管理命令: ${CMD_NAME}                                             ${CYAN}|${NC}\n"
+    fi
 
-# 发送测试消息
-echo ""
-echo -e "${CYAN}正在发送测试消息...${NC}"
-PYTHON="$INSTALL_DIR/venv/bin/python3"
-$PYTHON -c "
+    echo -e "${CYAN}+===========================================================================+${NC}"
+}
+
+start_service() {
+    echo ""
+    echo -e "${CYAN}+===========================================================================+${NC}"
+    printf "${CYAN}|${NC}  ${BOLD}%-69s${NC}${CYAN}|${NC}\n" "启动服务"
+    echo -e "${CYAN}+---------------------------------------------------------------------------+${NC}"
+
+    systemctl restart route-monitor
+    sleep 2
+
+    if systemctl is-active --quiet route-monitor; then
+        printf "${CYAN}|${NC}  ${GREEN}[✓]${NC} 服务启动成功                                              ${CYAN}|${NC}\n"
+    else
+        printf "${CYAN}|${NC}  ${RED}[✗]${NC} 服务启动失败                                              ${CYAN}|${NC}\n"
+        printf "${CYAN}|${NC}  查看日志: journalctl -u route-monitor -n 20                   ${CYAN}|${NC}\n"
+    fi
+
+    echo -e "${CYAN}+===========================================================================+${NC}"
+}
+
+test_alert() {
+    echo ""
+    echo -e "${CYAN}+===========================================================================+${NC}"
+    printf "${CYAN}|${NC}  ${BOLD}%-69s${NC}${CYAN}|${NC}\n" "发送测试消息"
+    echo -e "${CYAN}+---------------------------------------------------------------------------+${NC}"
+
+    PYTHON="$INSTALL_DIR/venv/bin/python3"
+    result=$($PYTHON -c "
 import sys, os
 sys.path.insert(0, '$INSTALL_DIR/src')
 os.chdir('$INSTALL_DIR')
@@ -219,17 +395,56 @@ from alerter import send_alert
 config = load_config()
 msg = '🔔 路由监测测试消息\n\n服务器: ' + config['server_name'] + '\n状态: 告警通道配置正常\n\n如果你看到这条消息，说明部署成功！'
 ok = send_alert(config, msg)
-if ok:
-    print('  ✓ 测试消息发送成功')
-else:
-    print('  ✗ 测试消息发送失败，请检查配置')
-" 2>/dev/null
+print('ok' if ok else 'fail')
+" 2>/dev/null)
 
-# ========== 完成 ==========
-echo ""
-echo -e "${CYAN}╔══════════════════════════════════════════╗${NC}"
-echo -e "${CYAN}║           部署完成！                      ║${NC}"
-echo -e "${CYAN}╚══════════════════════════════════════════╝${NC}"
-echo ""
-echo -e "输入 ${CYAN}monitor${NC} 打开管理面板"
-echo ""
+    if [ "$result" = "ok" ]; then
+        printf "${CYAN}|${NC}  ${GREEN}[✓]${NC} 测试消息发送成功                                          ${CYAN}|${NC}\n"
+    else
+        printf "${CYAN}|${NC}  ${RED}[✗]${NC} 测试消息发送失败，请检查配置                              ${CYAN}|${NC}\n"
+    fi
+
+    echo -e "${CYAN}+===========================================================================+${NC}"
+}
+
+show_success() {
+    echo ""
+    echo -e "${GREEN}+===========================================================================+${NC}"
+    echo -e "${GREEN}|${NC}                                                                          ${GREEN}|${NC}"
+    echo -e "${GREEN}|${NC}                    🎉  ${BOLD}部署成功！${NC}  🎉                                 ${GREEN}|${NC}"
+    echo -e "${GREEN}|${NC}                                                                          ${GREEN}|${NC}"
+    echo -e "${GREEN}+===========================================================================+${NC}"
+    echo -e "${GREEN}|${NC}                                                                          ${GREEN}|${NC}"
+    echo -e "${GREEN}|${NC}  ${BOLD}管理命令:${NC}                                                               ${GREEN}|${NC}"
+    printf "${GREEN}|${NC}    ${CYAN}%-12s${NC}  呼出管理菜单                                           ${GREEN}|${NC}\n" "${CMD_NAME}"
+    echo -e "${GREEN}|${NC}                                                                          ${GREEN}|${NC}"
+    echo -e "${GREEN}|${NC}  ${BOLD}常用命令:${NC}                                                               ${GREEN}|${NC}"
+    printf "${GREEN}|${NC}    ${CYAN}%-44s${NC} 查看状态   ${GREEN}|${NC}\n" "systemctl status route-monitor"
+    printf "${GREEN}|${NC}    ${CYAN}%-44s${NC} 查看日志   ${GREEN}|${NC}\n" "journalctl -u route-monitor -f"
+    printf "${GREEN}|${NC}    ${CYAN}%-44s${NC} 重启服务   ${GREEN}|${NC}\n" "systemctl restart route-monitor"
+    echo -e "${GREEN}|${NC}                                                                          ${GREEN}|${NC}"
+    echo -e "${GREEN}|${NC}  ${BOLD}Web 面板:${NC}                                                               ${GREEN}|${NC}"
+    printf "${GREEN}|${NC}    ${CYAN}%-44s${NC} 浏览器访问 ${GREEN}|${NC}\n" "http://服务器IP:8080"
+    echo -e "${GREEN}|${NC}                                                                          ${GREEN}|${NC}"
+    echo -e "${GREEN}+===========================================================================+${NC}"
+    echo ""
+}
+
+# ============================================================================
+# 主流程
+# ============================================================================
+
+main() {
+    show_logo
+    check_environment
+    install_dependencies
+    setup_python_env
+    configure_params
+    setup_systemd
+    install_command
+    start_service
+    test_alert
+    show_success
+}
+
+main "$@"

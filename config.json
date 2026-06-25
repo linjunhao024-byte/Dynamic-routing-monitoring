@@ -24,13 +24,15 @@
   "speedtest": {
     "enabled": true,
     "interval_sec": 1800,
-    "target_url": "http://speedtest.tele2.net/10MB.zip"
+    "target_url": "https://cdn.jsdelivr.net/npm/jquery@3.7.1/dist/jquery.min.js"
   },
 
   "monitoring": {
-    "ping_interval_sec": 5,
+    "ping_interval_sec": 30,
     "ping_count": 10,
-    "traceroute_interval_sec": 180,
+    "ping_jitter_sec": 5,
+    "traceroute_interval_sec": 1800,
+    "traceroute_on_anomaly": true,
     "baseline_sample_count": 100
   },
 
@@ -54,6 +56,14 @@
     "enabled": false,
     "webhook_url": "YOUR_DINGTALK_WEBHOOK_URL",
     "secret": ""
+  },
+
+  "web": {
+    "enabled": true,
+    "port": 8080,
+    "host": "0.0.0.0",
+    "username": "admin",
+    "password": ""
   },
 
   "database": {
