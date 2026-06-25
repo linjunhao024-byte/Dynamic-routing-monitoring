@@ -46,6 +46,17 @@ def send_dingtalk(webhook_url, secret, message):
         return False
 
 def send_alert(config, message):
+    """发送自动告警（异常检测、每日报告等）—— 仅走钉钉，不走 Telegram。
+    Telegram 仅用于 Bot 内联键盘交互，由 tg_bot.py 直接调用 API。"""
+    ok = True
+    dt = config.get("dingtalk", {})
+    if dt.get("enabled"):
+        if not send_dingtalk(dt["webhook_url"], dt.get("secret", ""), message):
+            ok = False
+    return ok
+
+def send_test_alert(config, message):
+    """测试告警通道 —— 同时发送钉钉和 Telegram，用于诊断。"""
     ok = True
     tg = config.get("telegram", {})
     if tg.get("enabled"):

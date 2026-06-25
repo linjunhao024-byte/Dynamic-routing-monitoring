@@ -293,9 +293,9 @@ class TelegramBot:
         return True
 
     def _action_test_alert(self):
-        from alerter import send_alert
+        from alerter import send_test_alert
         msg = f"🔔 路由监测测试消息\n\n服务器: {self.config['server_name']}\n状态: 告警通道正常\n\n如果你看到这条消息，说明一切正常！"
-        if send_alert(self.config, msg):
+        if send_test_alert(self.config, msg):
             self._send_text("✅ 测试消息已发送，请检查 TG 和钉钉是否收到")
         else:
             self._send_text("❌ 发送失败，请检查配置")
